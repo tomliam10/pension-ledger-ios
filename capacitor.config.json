@@ -1,0 +1,9 @@
+{
+  "appId": "com.yourname.pensionledger",
+  "appName": "Pension Ledger",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always"
+  },
+  "backgroundColor": "#020617"
+}
