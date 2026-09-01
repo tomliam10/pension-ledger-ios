@@ -10,6 +10,12 @@ echo "Installing npm dependencies..."
 cd "$CI_PRIMARY_REPOSITORY_PATH"
 npm install
 
+echo "Building the web app..."
+npm run build
+
+echo "Syncing Capacitor (copies the web build and config into the iOS project)..."
+npx cap sync ios
+
 echo "Installing CocoaPods dependencies..."
 cd "$CI_PRIMARY_REPOSITORY_PATH/ios/App"
 pod install
