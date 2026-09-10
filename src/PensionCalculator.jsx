@@ -1,5 +1,7 @@
-import React, { useState, useMemo, useEffect } from 'react';
-import { Shield, ChevronDown, ChevronRight, TriangleAlert, BookOpen, Upload, FileText, CheckCircle2 } from 'lucide-react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
+import { Shield, ChevronDown, ChevronRight, TriangleAlert, BookOpen, Upload, FileText, CheckCircle2, Lock, Loader2 } from 'lucide-react';
+import { usePurchases } from './purchases.js';
+import Paywall from './Paywall.jsx';
 
 /* ---------------------------------------------------------------
    Reference data — NYC Police Pension Fund, Summary Plan
@@ -37,7 +39,8 @@ function fmt(n) {
 }
 function num(v) {
   const n = parseFloat(v);
-  return isFinite(n) ? n : 0;
+  if (!isFinite(n)) return 0;
+  return n < 0 ? 0 : n; // nothing in this calculator is legitimately negative
 }
 
 /* ---------------------------------------------------------------
@@ -95,6 +98,12 @@ function extractFigures(text) {
       'pension amount',
     ]),
     monthly: findFigure(clean, ['monthly (?:pension|benefit|retirement allowance)', 'per month']),
+    longevity: findFigure(clean, [
+      'pension longevity enhancement',
+      'longevity enhancement',
+      'longevity increase',
+      'rank[- ]based enhancement',
+    ]),
   };
 }
 
@@ -102,21 +111,36 @@ function extractFigures(text) {
    Small building blocks
 --------------------------------------------------------------- */
 function NumField({ label, value, onChange, prefix = '$', hint, suffix }) {
+  const raw = String(value ?? '').trim();
+  const parsed = parseFloat(raw);
+  const isInvalid = raw !== '' && (!isFinite(parsed) || parsed < 0);
   return (
     <label className="block">
       <span className="block text-[13px] font-medium text-slate-300 mb-1">{label}</span>
-      <div className="flex items-center bg-slate-950 border border-slate-700 focus-within:border-amber-500 rounded-sm px-3 py-2">
-        {prefix && <span className="text-slate-500 font-mono mr-1 text-sm">{prefix}</span>}
+      <div
+        className={`flex items-center bg-slate-950 border rounded-sm px-3 py-2 ${
+          isInvalid ? 'border-red-500' : 'border-slate-700 focus-within:border-amber-500'
+        }`}
+      >
+        {prefix && <span className="text-slate-400 font-mono mr-1 text-sm">{prefix}</span>}
         <input
           type="number"
           inputMode="decimal"
+          min="0"
+          aria-invalid={isInvalid}
           className="bg-transparent outline-none w-full font-mono text-slate-100 text-base"
           value={value}
           onChange={(e) => onChange(e.target.value)}
         />
-        {suffix && <span className="text-slate-500 font-mono ml-1 text-sm">{suffix}</span>}
+        {suffix && <span className="text-slate-400 font-mono ml-1 text-sm">{suffix}</span>}
       </div>
-      {hint && <span className="block text-xs text-slate-500 mt-1 leading-snug">{hint}</span>}
+      {isInvalid ? (
+        <span className="block text-xs text-red-400 mt-1">
+          {parsed < 0 ? "Negative values aren't used here — treated as 0 below." : 'Not a valid number — treated as 0 below.'}
+        </span>
+      ) : (
+        hint && <span className="block text-xs text-slate-400 mt-1 leading-snug">{hint}</span>
+      )}
     </label>
   );
 }
@@ -149,14 +173,14 @@ function LedgerRow({ label, annual, monthly, bold, sub, negative }) {
     <div className={`flex items-start justify-between py-2.5 ${bold ? 'border-t border-slate-700 mt-1 pt-3' : 'border-b border-dotted border-slate-800'}`}>
       <div className="pr-3">
         <div className={`${bold ? 'font-semibold text-slate-100' : 'text-slate-300'} text-sm`}>{label}</div>
-        {sub && <div className="text-xs text-slate-500 mt-0.5 leading-snug max-w-md">{sub}</div>}
+        {sub && <div className="text-xs text-slate-400 mt-0.5 leading-snug max-w-md">{sub}</div>}
       </div>
-      <div className="text-right shrink-0">
-        <div className={`font-mono ${bold ? 'text-lg font-bold text-amber-400' : 'text-slate-200 text-sm'}`}>
+      <div className="text-right shrink-0 min-w-0">
+        <div className={`font-mono break-all ${bold ? 'text-lg font-bold text-amber-400' : 'text-slate-200 text-sm'}`}>
           {negative && amt < 0 ? '−' : ''}{fmt(Math.abs(amt))}
-          <span className="text-[11px] text-slate-500 font-sans ml-1">/yr</span>
+          <span className="text-[11px] text-slate-400 font-sans ml-1">/yr</span>
         </div>
-        <div className="text-xs text-slate-500 font-mono">
+        <div className="text-xs text-slate-400 font-mono">
           {negative && amtM < 0 ? '−' : ''}{fmt(Math.abs(amtM))}/mo
         </div>
       </div>
@@ -191,7 +215,7 @@ function SliderField({ label, value, max, onChange, hint }) {
       />
       <div className="flex flex-wrap items-center justify-between mt-2 gap-2">
         <div className="flex items-center bg-slate-950 border border-slate-700 focus-within:border-amber-500 rounded-sm px-3 py-2">
-          <span className="text-slate-500 font-mono mr-1 text-sm">$</span>
+          <span className="text-slate-400 font-mono mr-1 text-sm">$</span>
           <input
             type="number"
             inputMode="decimal"
@@ -200,9 +224,9 @@ function SliderField({ label, value, max, onChange, hint }) {
             onChange={(e) => onChange(e.target.value)}
           />
         </div>
-        <span className="text-xs text-slate-500 whitespace-nowrap">of {fmt(safeMax)} max</span>
+        <span className="text-xs text-slate-400 whitespace-nowrap">of {fmt(safeMax)} max</span>
       </div>
-      {hint && <span className="block text-xs text-slate-500 mt-1 leading-snug">{hint}</span>}
+      {hint && <span className="block text-xs text-slate-400 mt-1 leading-snug">{hint}</span>}
     </div>
   );
 }
@@ -213,13 +237,13 @@ function LumpSumRow({ label, value, sub, bold, negative }) {
     <div className={`flex items-start justify-between py-2.5 ${bold ? 'border-t border-slate-700 mt-1 pt-3' : 'border-b border-dotted border-slate-800'}`}>
       <div className="pr-3">
         <div className={`${bold ? 'font-semibold text-slate-100' : 'text-slate-300'} text-sm`}>{label}</div>
-        {sub && <div className="text-xs text-slate-500 mt-0.5 leading-snug max-w-md">{sub}</div>}
+        {sub && <div className="text-xs text-slate-400 mt-0.5 leading-snug max-w-md">{sub}</div>}
       </div>
-      <div className="text-right shrink-0">
-        <div className={`font-mono ${bold ? 'text-lg font-bold text-amber-400' : 'text-slate-200 text-sm'}`}>
+      <div className="text-right shrink-0 min-w-0">
+        <div className={`font-mono break-all ${bold ? 'text-lg font-bold text-amber-400' : 'text-slate-200 text-sm'}`}>
           {negative ? '−' : ''}{fmt(v)}
         </div>
-        <div className="text-[11px] text-slate-500">one-time</div>
+        <div className="text-[11px] text-slate-400">one-time</div>
       </div>
     </div>
   );
@@ -229,8 +253,8 @@ function ExtractedRow({ label, match, onUse }) {
   if (!match) {
     return (
       <div className="flex items-center justify-between py-2 border-b border-dotted border-slate-800">
-        <span className="text-sm text-slate-500">{label}</span>
-        <span className="text-xs text-slate-600">not found</span>
+        <span className="text-sm text-slate-400">{label}</span>
+        <span className="text-xs text-slate-400">not found</span>
       </div>
     );
   }
@@ -240,7 +264,7 @@ function ExtractedRow({ label, match, onUse }) {
         <div className="text-sm text-slate-200">
           {label}: <span className="font-mono text-amber-400">{match.value}</span>
         </div>
-        <div className="text-xs text-slate-500 truncate">"…{match.snippet}…"</div>
+        <div className="text-xs text-slate-400 truncate">"…{match.snippet}…"</div>
       </div>
       <button
         type="button"
@@ -249,6 +273,89 @@ function ExtractedRow({ label, match, onUse }) {
       >
         Use
       </button>
+    </div>
+  );
+}
+
+function LoadingSection({ title, badge }) {
+  return (
+    <div className="border border-slate-800 bg-slate-900/60 rounded-sm mb-4">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <span className="font-serif text-[17px] text-slate-100 flex items-center gap-2">
+          {badge && (
+            <span className="text-[10px] font-mono tracking-wide text-amber-500 border border-amber-700/70 rounded-sm px-1.5 py-0.5">
+              {badge}
+            </span>
+          )}
+          {title}
+        </span>
+        <Loader2 size={16} className="text-slate-400 shrink-0 animate-spin" />
+      </div>
+      <div className="px-4 pb-4">
+        <p className="text-sm text-slate-400">Checking your purchase status…</p>
+      </div>
+    </div>
+  );
+}
+
+function LockedSection({ title, badge, teaser, onUnlock }) {
+  return (
+    <div className="border border-amber-800/40 bg-slate-900/60 rounded-sm mb-4">
+      <div className="px-4 py-3 flex items-center justify-between">
+        <span className="font-serif text-[17px] text-slate-100 flex items-center gap-2">
+          {badge && (
+            <span className="text-[10px] font-mono tracking-wide text-amber-500 border border-amber-700/70 rounded-sm px-1.5 py-0.5">
+              {badge}
+            </span>
+          )}
+          {title}
+        </span>
+        <Lock size={16} className="text-amber-500 shrink-0" />
+      </div>
+      <div className="px-4 pb-4">
+        <p className="text-sm text-slate-400 leading-relaxed mb-3">{teaser}</p>
+        <button
+          type="button"
+          onClick={onUnlock}
+          className="text-xs bg-amber-500 text-slate-950 font-medium rounded-sm px-4 py-2.5"
+        >
+          Unlock Full Access
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function TradeoffSummary({ beforeMonthly, afterMonthly, netCash, periodLabel }) {
+  const diff = beforeMonthly - afterMonthly;
+  return (
+    <div className="mt-4 border border-amber-700/50 bg-amber-950/20 rounded-sm p-4">
+      <div className="font-serif text-base text-slate-100 mb-3">
+        What you're trading{periodLabel ? ` (${periodLabel})` : ''}
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="bg-slate-950/60 border border-slate-700 rounded-sm px-3 py-3">
+          <div className="text-xs text-slate-400 mb-1">If you DON'T withdraw</div>
+          <div className="font-mono text-lg text-slate-100">{fmt(beforeMonthly)}</div>
+          <div className="text-xs text-slate-400">per month, for life</div>
+        </div>
+        <div className="bg-slate-950/60 border border-slate-700 rounded-sm px-3 py-3">
+          <div className="text-xs text-slate-400 mb-1">If you DO withdraw</div>
+          <div className="font-mono text-lg text-amber-400">{fmt(afterMonthly)}</div>
+          <div className="text-xs text-slate-400">per month, for life</div>
+        </div>
+      </div>
+      <p className="text-sm text-slate-200 leading-relaxed">
+        You give up <span className="font-mono text-amber-400">{fmt(diff)}/mo</span> for the rest of your life, in
+        exchange for <span className="font-mono text-amber-400">{fmt(netCash)}</span> in hand now.
+      </p>
+      {diff > 0 && netCash > 0 && (
+        <p className="text-xs text-slate-400 leading-relaxed mt-2">
+          Rough break-even: about {Math.round(netCash / diff)} months ({(netCash / diff / 12).toFixed(1)} years) of
+          collecting the smaller pension before the cash you took is used up. Living longer than that favors keeping
+          the bigger pension; this ignores any growth if you invest the cash.
+        </p>
+      )}
     </div>
   );
 }
@@ -270,7 +377,7 @@ function Section({ title, badge, children, defaultOpen = true }) {
           )}
           {title}
         </span>
-        {open ? <ChevronDown size={18} className="text-slate-500 shrink-0" /> : <ChevronRight size={18} className="text-slate-500 shrink-0" />}
+        {open ? <ChevronDown size={18} className="text-slate-400 shrink-0" /> : <ChevronRight size={18} className="text-slate-400 shrink-0" />}
       </button>
       {open && <div className="px-4 pb-4">{children}</div>}
     </div>
@@ -303,10 +410,59 @@ function CompositionBar({ segments }) {
 }
 
 /* =================================================================
+   Error boundary — catches any unexpected calculation/render error
+   and shows a real message instead of a blank white screen.
+================================================================= */
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, message: '' };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, message: error && error.message ? error.message : 'Unknown error' };
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen bg-slate-950 text-slate-200 font-sans flex items-center justify-center p-6">
+          <div className="max-w-sm text-center">
+            <TriangleAlert className="text-amber-500 mx-auto mb-3" size={32} />
+            <h1 className="font-serif text-xl text-slate-100 mb-2">Something went wrong</h1>
+            <p className="text-sm text-slate-400 leading-relaxed mb-4">
+              The calculator hit an unexpected error and couldn't continue. Your entered figures are safe — this
+              usually clears up on a fresh start.
+            </p>
+            <p className="text-xs text-slate-400 font-mono mb-4 break-words">{this.state.message}</p>
+            <button
+              type="button"
+              onClick={() => this.setState({ hasError: false, message: '' })}
+              className="bg-amber-500 text-slate-950 font-medium text-sm rounded-sm px-4 py-2.5"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+/* =================================================================
    MAIN APP
 ================================================================= */
-export default function PensionCalculator() {
+export default function PensionCalculatorWithBoundary() {
+  return (
+    <ErrorBoundary>
+      <PensionCalculator />
+    </ErrorBoundary>
+  );
+}
+
+function PensionCalculator() {
   const [tier, setTier] = useState('tier2');
+  const { isPremium, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
+  const [showPaywall, setShowPaywall] = useState(false);
 
   /* ---------------- Tier 2 state ---------------- */
   const [t2AppointDate, setT2AppointDate] = useState('after2000');
@@ -315,12 +471,12 @@ export default function PensionCalculator() {
   const [t2FAS, setT2FAS] = useState('125000');
   const [t2EarningsAfter20, setT2EarningsAfter20] = useState('0');
   const [t2AppointAge, setT2AppointAge] = useState('25');
+  const [t2LongevityEnhancement, setT2LongevityEnhancement] = useState('0');
 
   const [t2ShowNonUni, setT2ShowNonUni] = useState(false);
   const [t2NonUniYears, setT2NonUniYears] = useState('0');
   const [t2NonUniAvg, setT2NonUniAvg] = useState('0');
 
-  const [t2ShowEnhanced, setT2ShowEnhanced] = useState(false);
   const [t2WaivedITHP, setT2WaivedITHP] = useState(false);
   const [t2Uses5050, setT2Uses5050] = useState(false);
   const [t2EnhancedMode, setT2EnhancedMode] = useState('lumpsum'); // 'lumpsum' | 'annual'
@@ -328,6 +484,7 @@ export default function PensionCalculator() {
   const [t2ExcessBalance, setT2ExcessBalance] = useState('0');
   const [t2ShortageBalance, setT2ShortageBalance] = useState('0');
   const [t2Factor, setT2Factor] = useState('82');
+  const [t2ITHPAnnuity, setT2ITHPAnnuity] = useState('0');
 
   const [t2ShowWithdrawal, setT2ShowWithdrawal] = useState(false);
   const [t2WithdrawalMode, setT2WithdrawalMode] = useState('amount'); // 'amount' | 'target'
@@ -340,13 +497,14 @@ export default function PensionCalculator() {
   /* ---------------- Tier 3 state ---------------- */
   const [t3Plan, setT3Plan] = useState('revised');
   const [t3RetType, setT3RetType] = useState('normal');
-  const [t3Years, setT3Years] = useState('22');
+  const [t3Years, setT3Years] = useState('20');
   const [t3FAS, setT3FAS] = useState('125000');
   const [t3SS62, setT3SS62] = useState('0');
   const [t3SSDI, setT3SSDI] = useState('0');
   const [t3ADRHasSSDI, setT3ADRHasSSDI] = useState(false);
   const [t3ShowEarlyVest, setT3ShowEarlyVest] = useState(false);
   const [t3YearsEarly, setT3YearsEarly] = useState('0');
+  const [t3LongevityEnhancement, setT3LongevityEnhancement] = useState('0');
 
   const [t3ShowWithdrawal, setT3ShowWithdrawal] = useState(false);
   const [t3WithdrawalMode, setT3WithdrawalMode] = useState('amount'); // 'amount' | 'target'
@@ -374,6 +532,158 @@ export default function PensionCalculator() {
   const [officialMonthly, setOfficialMonthly] = useState('0');
   const [fileError, setFileError] = useState('');
   const [fileName, setFileName] = useState('');
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState(0);
+
+  /* ---------------- Persistence: remember inputs across app launches ---------------- */
+  const PERSIST_KEY = 'pension-ledger-v1';
+  const hasRestored = useRef(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(PERSIST_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+      if (saved.tier !== undefined) setTier(saved.tier);
+      if (saved.t2AppointDate !== undefined) setT2AppointDate(saved.t2AppointDate);
+      if (saved.t2RetType !== undefined) setT2RetType(saved.t2RetType);
+      if (saved.t2Years !== undefined) setT2Years(saved.t2Years);
+      if (saved.t2FAS !== undefined) setT2FAS(saved.t2FAS);
+      if (saved.t2EarningsAfter20 !== undefined) setT2EarningsAfter20(saved.t2EarningsAfter20);
+      if (saved.t2AppointAge !== undefined) setT2AppointAge(saved.t2AppointAge);
+      if (saved.t2LongevityEnhancement !== undefined) setT2LongevityEnhancement(saved.t2LongevityEnhancement);
+      if (saved.t2ShowNonUni !== undefined) setT2ShowNonUni(saved.t2ShowNonUni);
+      if (saved.t2NonUniYears !== undefined) setT2NonUniYears(saved.t2NonUniYears);
+      if (saved.t2NonUniAvg !== undefined) setT2NonUniAvg(saved.t2NonUniAvg);
+      if (saved.t2WaivedITHP !== undefined) setT2WaivedITHP(saved.t2WaivedITHP);
+      if (saved.t2Uses5050 !== undefined) setT2Uses5050(saved.t2Uses5050);
+      if (saved.t2EnhancedMode !== undefined) setT2EnhancedMode(saved.t2EnhancedMode);
+      if (saved.t2EnhancedAnnual !== undefined) setT2EnhancedAnnual(saved.t2EnhancedAnnual);
+      if (saved.t2ExcessBalance !== undefined) setT2ExcessBalance(saved.t2ExcessBalance);
+      if (saved.t2ShortageBalance !== undefined) setT2ShortageBalance(saved.t2ShortageBalance);
+      if (saved.t2Factor !== undefined) setT2Factor(saved.t2Factor);
+      if (saved.t2ITHPAnnuity !== undefined) setT2ITHPAnnuity(saved.t2ITHPAnnuity);
+      if (saved.t2ShowWithdrawal !== undefined) setT2ShowWithdrawal(saved.t2ShowWithdrawal);
+      if (saved.t2WithdrawalMode !== undefined) setT2WithdrawalMode(saved.t2WithdrawalMode);
+      if (saved.t2RequiredAmount !== undefined) setT2RequiredAmount(saved.t2RequiredAmount);
+      if (saved.t2WithdrawalAmount !== undefined) setT2WithdrawalAmount(saved.t2WithdrawalAmount);
+      if (saved.t2TargetMonthly !== undefined) setT2TargetMonthly(saved.t2TargetMonthly);
+      if (saved.t2Rollover !== undefined) setT2Rollover(saved.t2Rollover);
+      if (saved.t2PenaltyExempt !== undefined) setT2PenaltyExempt(saved.t2PenaltyExempt);
+      if (saved.t3Plan !== undefined) setT3Plan(saved.t3Plan);
+      if (saved.t3RetType !== undefined) setT3RetType(saved.t3RetType);
+      if (saved.t3Years !== undefined) setT3Years(saved.t3Years);
+      if (saved.t3FAS !== undefined) setT3FAS(saved.t3FAS);
+      if (saved.t3SS62 !== undefined) setT3SS62(saved.t3SS62);
+      if (saved.t3SSDI !== undefined) setT3SSDI(saved.t3SSDI);
+      if (saved.t3ADRHasSSDI !== undefined) setT3ADRHasSSDI(saved.t3ADRHasSSDI);
+      if (saved.t3ShowEarlyVest !== undefined) setT3ShowEarlyVest(saved.t3ShowEarlyVest);
+      if (saved.t3YearsEarly !== undefined) setT3YearsEarly(saved.t3YearsEarly);
+      if (saved.t3LongevityEnhancement !== undefined) setT3LongevityEnhancement(saved.t3LongevityEnhancement);
+      if (saved.t3ShowWithdrawal !== undefined) setT3ShowWithdrawal(saved.t3ShowWithdrawal);
+      if (saved.t3WithdrawalMode !== undefined) setT3WithdrawalMode(saved.t3WithdrawalMode);
+      if (saved.t3LoanBucket !== undefined) setT3LoanBucket(saved.t3LoanBucket);
+      if (saved.t3RequiredAmount !== undefined) setT3RequiredAmount(saved.t3RequiredAmount);
+      if (saved.t3OutstandingLoan !== undefined) setT3OutstandingLoan(saved.t3OutstandingLoan);
+      if (saved.t3WithdrawalAmount !== undefined) setT3WithdrawalAmount(saved.t3WithdrawalAmount);
+      if (saved.t3TargetMonthly !== undefined) setT3TargetMonthly(saved.t3TargetMonthly);
+      if (saved.t3TargetBasis !== undefined) setT3TargetBasis(saved.t3TargetBasis);
+      if (saved.t3Factor !== undefined) setT3Factor(saved.t3Factor);
+      if (saved.t3Rollover !== undefined) setT3Rollover(saved.t3Rollover);
+      if (saved.t3PenaltyExempt !== undefined) setT3PenaltyExempt(saved.t3PenaltyExempt);
+      if (saved.showDefComp !== undefined) setShowDefComp(saved.showDefComp);
+      if (saved.defCompBalance !== undefined) setDefCompBalance(saved.defCompBalance);
+      if (saved.defCompMode !== undefined) setDefCompMode(saved.defCompMode);
+      if (saved.defCompRate !== undefined) setDefCompRate(saved.defCompRate);
+      if (saved.defCompFixedMonthly !== undefined) setDefCompFixedMonthly(saved.defCompFixedMonthly);
+      if (saved.statementText !== undefined) setStatementText(saved.statementText);
+      if (saved.officialAnnual !== undefined) setOfficialAnnual(saved.officialAnnual);
+      if (saved.officialMonthly !== undefined) setOfficialMonthly(saved.officialMonthly);
+      }
+    } catch (e) {
+      // Corrupt or inaccessible storage — just start fresh rather than crash.
+    } finally {
+      hasRestored.current = true;
+    }
+    // Restore once on mount only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!hasRestored.current) return; // don't overwrite saved data with defaults before restore runs
+    try {
+      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3FAS, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly }));
+    } catch (e) {
+      // Storage full or unavailable — inputs just won't persist this session.
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3FAS, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly]);
+
+  function resetAll() {
+    setTier('tier2');
+    setT2AppointDate('after2000');
+    setT2RetType('service');
+    setT2Years('20');
+    setT2FAS('125000');
+    setT2EarningsAfter20('0');
+    setT2AppointAge('25');
+    setT2LongevityEnhancement('0');
+    setT2ShowNonUni(false);
+    setT2NonUniYears('0');
+    setT2NonUniAvg('0');
+    setT2WaivedITHP(false);
+    setT2Uses5050(false);
+    setT2EnhancedMode('lumpsum');
+    setT2EnhancedAnnual('0');
+    setT2ExcessBalance('0');
+    setT2ShortageBalance('0');
+    setT2Factor('82');
+    setT2ITHPAnnuity('0');
+    setT2ShowWithdrawal(false);
+    setT2WithdrawalMode('amount');
+    setT2RequiredAmount('150000');
+    setT2WithdrawalAmount('0');
+    setT2TargetMonthly('7000');
+    setT2Rollover(false);
+    setT2PenaltyExempt(false);
+    setT3Plan('revised');
+    setT3RetType('normal');
+    setT3Years('20');
+    setT3FAS('125000');
+    setT3SS62('0');
+    setT3SSDI('0');
+    setT3ADRHasSSDI(false);
+    setT3ShowEarlyVest(false);
+    setT3YearsEarly('0');
+    setT3LongevityEnhancement('0');
+    setT3ShowWithdrawal(false);
+    setT3WithdrawalMode('amount');
+    setT3LoanBucket('onafter2018');
+    setT3RequiredAmount('60000');
+    setT3OutstandingLoan('0');
+    setT3WithdrawalAmount('0');
+    setT3TargetMonthly('7000');
+    setT3TargetBasis('before');
+    setT3Factor('82');
+    setT3Rollover(false);
+    setT3PenaltyExempt(false);
+    setShowDefComp(false);
+    setDefCompBalance('0');
+    setDefCompMode('rate');
+    setDefCompRate('4');
+    setDefCompFixedMonthly('0');
+    setStatementText('');
+    setOfficialAnnual('0');
+    setOfficialMonthly('0');
+    setExtracted(null);
+    setFileError('');
+    setFileName('');
+    try { window.localStorage.removeItem(PERSIST_KEY); } catch (e) {}
+    setConfirmingReset(false);
+  }
+
+  const [confirmingReset, setConfirmingReset] = useState(false);
+
 
   /* ---------------- Tier 2 computation ---------------- */
   const t2 = useMemo(() => {
@@ -385,41 +695,63 @@ export default function PensionCalculator() {
     const nonUniformBenefit = 0.75 * (1 / 60) * nuAvg * nuYears;
 
     const isService = t2RetType === 'service';
+    const isVested = t2RetType === 'vested';
+    const isODR = t2RetType === 'odr';
+    const isADR = t2RetType === 'adr';
+    const usesEarningsAfter20 = isService || isADR;
     const under20Warning = isService && years < 20;
+    const unrealisticYears = years > 45;
 
     let base = 0;
     if (isService) {
       base = 0.5 * fas + (1 / 60) * earningsAfter20;
-    } else {
+    } else if (isVested) {
       base = (1 / 40) * fas * years;
+    } else if (isODR) {
+      // Ordinary Disability Retirement — tiered by years of credited service.
+      if (years < 10) base = fas / 3;
+      else if (years < 20) base = 0.5 * fas;
+      else base = (years / 40) * fas;
+    } else if (isADR) {
+      // Accident Disability Retirement — flat 75%, plus the same post-20th-anniversary
+      // earnings credit Service Retirement gets.
+      base = 0.75 * fas + (1 / 60) * earningsAfter20;
     }
-    const coreAnnual = base + nonUniformBenefit;
+    // Prior non-uniformed service credit only applies to Service and Vested per the SPD.
+    const coreAnnual = base + (isService || isVested ? nonUniformBenefit : 0);
 
+    // ASF excess less shortage — a mandatory component of the SPD's Service Retirement
+    // formula, not an optional add-on. Always counted.
     let enhancedAnnual = 0;
-    if (t2ShowEnhanced) {
-      if (t2EnhancedMode === 'annual') {
-        enhancedAnnual = num(t2EnhancedAnnual);
-      } else {
-        const excess = num(t2ExcessBalance);
-        const shortage = num(t2ShortageBalance);
-        const factor = num(t2Factor);
-        enhancedAnnual = ((excess - shortage) / 1000) * factor;
-      }
+    if (t2EnhancedMode === 'annual') {
+      enhancedAnnual = num(t2EnhancedAnnual);
+    } else {
+      const excess = num(t2ExcessBalance);
+      const shortage = num(t2ShortageBalance);
+      const factor = num(t2Factor);
+      enhancedAnnual = ((excess - shortage) / 1000) * factor;
     }
+
+    // Annuity value of City ITHP contributions after the 20th anniversary — listed
+    // separately from ASF excess/shortage in the SPD.
+    const ithpAnnual = num(t2ITHPAnnuity);
 
     const vsfEligible = isService && years >= 20;
     const vsfAnnual = vsfEligible ? 12000 : 0;
+    const longevityAnnual = num(t2LongevityEnhancement);
 
-    const pensionAnnual = Math.max(0, coreAnnual + enhancedAnnual);
+    const pensionAnnual = Math.max(0, coreAnnual + enhancedAnnual + ithpAnnual + longevityAnnual);
     const totalAnnual = pensionAnnual + vsfAnnual;
 
     return {
-      years, fas, base, nonUniformBenefit, coreAnnual, enhancedAnnual,
-      vsfEligible, vsfAnnual, pensionAnnual, totalAnnual, under20Warning, isService,
+      years, fas, base, nonUniformBenefit, coreAnnual, enhancedAnnual, ithpAnnual, longevityAnnual,
+      vsfEligible, vsfAnnual, pensionAnnual, totalAnnual, under20Warning, unrealisticYears,
+      isService, isVested, isODR, isADR, usesEarningsAfter20,
     };
   }, [
     t2Years, t2FAS, t2EarningsAfter20, t2RetType, t2ShowNonUni, t2NonUniYears, t2NonUniAvg,
-    t2ShowEnhanced, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor,
+    t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity,
+    t2LongevityEnhancement,
   ]);
 
   const t2Rate = TIER2_RATE_TABLE.find((r) => r.age === Math.round(num(t2AppointAge))) || TIER2_RATE_TABLE[5];
@@ -443,19 +775,13 @@ export default function PensionCalculator() {
         beforeOffset = beforeOffset * (1 - reduction);
       }
       offsetKind = 'age62';
-    } else if (t3RetType === 'early') {
-      underMinWarning = years < 20;
-      const base20 = 0.021 * fas * 20;
-      const monthsBeyond = Math.max(0, (years - 20) * 12);
-      const addl = (1 / 300) * fas * monthsBeyond;
-      beforeOffset = Math.min(base20 + addl, 0.5 * fas);
-      offsetKind = 'age62';
-      vsfEligible = years >= 20;
     } else if (t3RetType === 'normal') {
-      underMinWarning = years < 22;
+      // Chapter 55 of the Laws of 2025 restored unreduced Service Retirement at 20
+      // years for Tier 3 (previously 22) — confirmed current in PPF's June 2026 SPD.
+      underMinWarning = years < 20;
       beforeOffset = 0.5 * fas;
       offsetKind = 'age62';
-      vsfEligible = true;
+      vsfEligible = years >= 20;
     } else if (t3RetType === 'odr') {
       beforeOffset = Math.max(fas / 3, 0.02 * fas * years);
       offsetKind = 'immediate';
@@ -469,6 +795,9 @@ export default function PensionCalculator() {
       }
     }
 
+    const longevityAnnual = num(t3LongevityEnhancement);
+    beforeOffset += longevityAnnual;
+
     let afterOffsetAnnual = beforeOffset;
     if (offsetKind === 'age62') {
       afterOffsetAnnual = Math.max(0, beforeOffset - ss62Annual);
@@ -481,12 +810,12 @@ export default function PensionCalculator() {
     const hasAgeSplit = offsetKind === 'age62';
 
     return {
-      years, fas, beforeOffset, afterOffsetAnnual, vsfEligible, vsfAnnual,
+      years, fas, beforeOffset, afterOffsetAnnual, vsfEligible, vsfAnnual, longevityAnnual,
       offsetKind, hasAgeSplit, underMinWarning,
       totalBeforeAnnual: beforeOffset + vsfAnnual,
       totalAfterAnnual: afterOffsetAnnual + vsfAnnual,
     };
-  }, [t3Years, t3FAS, t3SS62, t3SSDI, t3RetType, t3Plan, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly]);
+  }, [t3Years, t3FAS, t3SS62, t3SSDI, t3RetType, t3Plan, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement]);
 
   /* ---------------- Deferred comp (shared) ---------------- */
   const defCompAnnual = useMemo(() => {
@@ -593,15 +922,45 @@ export default function PensionCalculator() {
     t3WithdrawalMode === 'target' && !t3TargetNoWithdrawalNeeded && t3Withdrawal && t3TargetResultAnnual > t3TargetAnnual + 25;
 
   /* ---------------- Accuracy check handlers ---------------- */
+  async function ocrImage(file) {
+    setOcrLoading(true);
+    setOcrProgress(0);
+    setFileError('');
+    try {
+      const Tesseract = await import('tesseract.js');
+      const { data } = await Tesseract.recognize(file, 'eng', {
+        logger: (m) => {
+          if (m.status === 'recognizing text' && typeof m.progress === 'number') {
+            setOcrProgress(Math.round(m.progress * 100));
+          }
+        },
+      });
+      const text = data && data.text ? data.text : '';
+      setStatementText(text);
+      if (!text.trim()) {
+        setFileError('Could not find any readable text in that image — try a clearer, well-lit photo, or paste the text manually below instead.');
+      }
+    } catch (err) {
+      setFileError('Could not process that image. Try a clearer photo, or paste the text manually below instead.');
+    } finally {
+      setOcrLoading(false);
+    }
+  }
+
   function handleFileUpload(e) {
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setFileError('');
     setFileName(file.name);
     const isTxt = file.type === 'text/plain' || /\.txt$/i.test(file.name);
+    const isImage = file.type.startsWith('image/') || /\.(jpe?g|png|heic|heif|gif|webp|bmp)$/i.test(file.name);
+    if (isImage) {
+      ocrImage(file);
+      return;
+    }
     if (!isTxt) {
       setFileError(
-        "Browsers can't decode a PDF's compressed text on their own here — open your statement, select all the text, copy it, and paste it into the box below instead."
+        "Browsers can't decode a PDF's compressed text on their own here — open your statement, select all the text, copy it, and paste it into the box below, or upload a photo/screenshot of it instead."
       );
       return;
     }
@@ -624,6 +983,7 @@ export default function PensionCalculator() {
     if (key === 'required') tier === 'tier2' ? setT2RequiredAmount(val) : setT3RequiredAmount(val);
     if (key === 'annual') setOfficialAnnual(val);
     if (key === 'monthly') setOfficialMonthly(val);
+    if (key === 'longevity') tier === 'tier2' ? setT2LongevityEnhancement(val) : setT3LongevityEnhancement(val);
   }
 
   const accuracy = useMemo(() => {
@@ -654,8 +1014,7 @@ export default function PensionCalculator() {
 
   const retTypeLabelsT3 = {
     vested: 'Vested Retirement',
-    early: 'Early Service Retirement',
-    normal: 'Normal Service Retirement',
+    normal: 'Service Retirement',
     odr: 'Ordinary Disability Retirement',
     adr: 'Accident Disability Retirement',
   };
@@ -665,12 +1024,41 @@ export default function PensionCalculator() {
       {/* Letterhead */}
       <header className="bg-slate-900 border-b border-amber-700/40">
         <div className="max-w-4xl mx-auto px-5 py-6">
-          <div className="flex items-center gap-3">
-            <Shield className="text-amber-500 shrink-0" size={30} strokeWidth={1.5} />
-            <div>
-              <h1 className="font-serif text-2xl sm:text-3xl text-slate-50 tracking-tight">Pension Ledger</h1>
-              <p className="text-xs sm:text-sm text-slate-400 tracking-wide">NYPD Tier 2 &amp; Tier 3 Benefit Estimator</p>
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0">
+              <Shield className="text-amber-500 shrink-0" size={30} strokeWidth={1.5} />
+              <div className="min-w-0">
+                <h1 className="font-serif text-2xl sm:text-3xl text-slate-50 tracking-tight">Pension Ledger</h1>
+                <p className="text-xs sm:text-sm text-slate-400 tracking-wide">NY Police Tier 2 &amp; Tier 3 Estimator</p>
+              </div>
             </div>
+            {!confirmingReset ? (
+              <button
+                type="button"
+                onClick={() => setConfirmingReset(true)}
+                className="shrink-0 text-xs text-slate-200 border border-slate-500 hover:border-amber-500 hover:text-amber-400 rounded-sm px-3 py-2"
+              >
+                Reset all
+              </button>
+            ) : (
+              <div className="shrink-0 flex items-center gap-2">
+                <span className="text-xs text-amber-400 hidden sm:inline">Clear everything?</span>
+                <button
+                  type="button"
+                  onClick={resetAll}
+                  className="text-xs text-slate-950 bg-amber-500 font-medium rounded-sm px-3 py-2"
+                >
+                  Yes, reset
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingReset(false)}
+                  className="text-xs text-slate-300 border border-slate-600 rounded-sm px-3 py-2"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
           </div>
         </div>
         <div className="h-[3px] bg-gradient-to-r from-amber-700 via-amber-500 to-amber-700" />
@@ -681,11 +1069,20 @@ export default function PensionCalculator() {
         <div className="flex gap-3 bg-amber-950/30 border border-amber-800/50 rounded-sm px-4 py-3 mb-6">
           <TriangleAlert className="text-amber-500 shrink-0 mt-0.5" size={18} />
           <p className="text-xs text-amber-200/90 leading-relaxed">
-            This is an independent, unofficial estimator built from the Police Pension Fund's published October 2024
-            Summary Plan Descriptions. It is not affiliated with the City of New York or NYCPPF, and it cannot
-            replicate the exact actuarial factors the Office of the Actuary uses for excess, shortage, and ITHP
-            annuity conversions. Treat every figure here as a planning estimate — request your official benefit
-            estimate from PPF (212-693-5100 / webCOPS) before making retirement decisions.
+            This is an independent, unofficial estimator built from the Police Pension Fund's June 2026 Summary Plan
+            Descriptions, which reflect Chapter 55 of the Laws of 2025 restoring 20-year Service Retirement for
+            Tier 3. It is not affiliated with the City of New York or NYCPPF, cannot replicate the Office of the
+            Actuary's exact factors for excess, shortage, and ITHP annuity conversions, and does not model the
+            rank-based Pension Longevity Enhancements available at 25/30/35 years (these can raise your real
+            benefit above what's shown here). Treat every figure here as a planning estimate — regardless of what
+            this app shows, always confirm with an official benefit estimate from PPF's pension section
+            (212-693-5100 / webCOPS) before making retirement decisions.
+            <br />
+            <br />
+            This app does not provide financial, legal, or tax advice, and using it creates no advisory
+            relationship. See{' '}
+            <a href="https://example.com/terms" className="underline">Terms of Use</a> and{' '}
+            <a href="https://example.com/privacy" className="underline">Privacy Policy</a>.
           </p>
         </div>
 
@@ -703,7 +1100,7 @@ export default function PensionCalculator() {
               }`}
             >
               <div className={`font-serif text-lg ${tier === t.v ? 'text-amber-400' : 'text-slate-300'}`}>{t.label}</div>
-              <div className="text-xs text-slate-500 mt-0.5">{t.sub}</div>
+              <div className="text-xs text-slate-400 mt-0.5">{t.sub}</div>
             </button>
           ))}
         </div>
@@ -723,7 +1120,7 @@ export default function PensionCalculator() {
                       { value: 'after2000', label: 'On/after 7/1/2000' },
                     ]}
                   />
-                  <p className="text-xs text-slate-500 mt-1 leading-snug">
+                  <p className="text-xs text-slate-400 mt-1 leading-snug">
                     {t2AppointDate === 'before2000'
                       ? 'Your FAS is the greatest of: final 12 months, average of final 36 months, or average of your best 3 consecutive calendar years.'
                       : 'Your FAS is your pensionable earnings in the final 12 months before retirement.'}
@@ -737,6 +1134,8 @@ export default function PensionCalculator() {
                     options={[
                       { value: 'service', label: 'Service (20+ yrs)' },
                       { value: 'vested', label: 'Vested (5–19 yrs)' },
+                      { value: 'odr', label: 'Ordinary Disability' },
+                      { value: 'adr', label: 'Accident Disability' },
                     ]}
                   />
                 </div>
@@ -748,7 +1147,11 @@ export default function PensionCalculator() {
                   prefix=""
                   value={t2Years}
                   onChange={setT2Years}
-                  hint="Twenty years of allowable police service are required for Service Retirement."
+                  hint={
+                    t2.isODR || t2.isADR
+                      ? 'ODR and ADR are available at any age or years of service — this just affects the ODR formula tier.'
+                      : 'Twenty years of allowable police service are required for Service Retirement.'
+                  }
                 />
                 <NumField
                   label="Final Average Salary (FAS)"
@@ -756,7 +1159,7 @@ export default function PensionCalculator() {
                   onChange={setT2FAS}
                   hint="Base salary, overtime, night differential, holiday pay, worked vacation, and allowable longevity."
                 />
-                {t2.isService && t2.years > 20 && (
+                {t2.usesEarningsAfter20 && t2.years > 20 && (
                   <NumField
                     label="Pensionable earnings after your 20th anniversary"
                     value={t2EarningsAfter20}
@@ -766,24 +1169,67 @@ export default function PensionCalculator() {
                 )}
               </div>
 
+              {t2.isODR && (
+                <p className="text-xs text-slate-400 mt-3 leading-snug">
+                  ODR pays the greater of 33⅓% of FAS (under 10 years), 50% of FAS (10–19 years), or years÷40 × FAS
+                  (20+ years) — requires approval for primary Social Security Disability Insurance (SSDI), with
+                  active receipt of SSDI required annually until age 65.
+                </p>
+              )}
+              {t2.isADR && (
+                <p className="text-xs text-slate-400 mt-3 leading-snug">
+                  ADR pays a flat 75% of FAS regardless of years of service, plus the same post-20th-anniversary
+                  earnings credit as Service Retirement — not conditioned on Social Security eligibility.
+                </p>
+              )}
+
+              {t2.isService && t2.years > 20 && num(t2EarningsAfter20) === 0 && (
+                <p className="text-xs text-amber-400 mt-3 flex items-start gap-1.5 bg-amber-950/30 border border-amber-800/50 rounded-sm px-3 py-2">
+                  <TriangleAlert size={14} className="shrink-0 mt-0.5" />
+                  Heads up: past 20 years, this formula only grows through the "Pensionable earnings after your 20th
+                  anniversary" field above — the years number by itself won't move your total. Fill that field in to
+                  see it reflected.
+                </p>
+              )}
+
               {t2.under20Warning && (
                 <p className="text-xs text-amber-400 mt-3 flex items-center gap-1.5">
                   <TriangleAlert size={14} /> Service Retirement needs 20+ years — with fewer years this reflects a Vested-style calculation instead.
                 </p>
               )}
 
-              <button
-                type="button"
-                onClick={() => setT2ShowNonUni(!t2ShowNonUni)}
-                className="text-xs text-amber-500 mt-4 underline decoration-dotted"
-              >
-                {t2ShowNonUni ? 'Hide' : 'Add'} prior non-uniformed (Other Credited) service
-              </button>
-              {t2ShowNonUni && (
-                <div className="grid sm:grid-cols-2 gap-4 mt-3 border-t border-slate-800 pt-3">
-                  <NumField label="Years of non-uniformed credited service" prefix="" value={t2NonUniYears} onChange={setT2NonUniYears} />
-                  <NumField label="Average earnings, last 5 years of that service" value={t2NonUniAvg} onChange={setT2NonUniAvg} />
-                </div>
+              {t2.unrealisticYears && (
+                <p className="text-xs text-amber-400 mt-3 flex items-center gap-1.5">
+                  <TriangleAlert size={14} /> {t2Years} years of service is unusually high for a NY Police career — double-check this wasn't a typo.
+                </p>
+              )}
+
+              <div className="mt-4 pt-3 border-t border-slate-800">
+                <NumField
+                  label="Pension Longevity Enhancement (optional)"
+                  value={t2LongevityEnhancement}
+                  onChange={setT2LongevityEnhancement}
+                  suffix="/yr"
+                  hint="Rank-based boost at 25/30/35 years — depends on your rank and time in rank, so this calculator can't compute it. If you know your figure from a PPF statement or your union rep, enter it here; otherwise leave at 0."
+                />
+              </div>
+
+              {(t2.isService || t2.isVested) && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setT2ShowNonUni(!t2ShowNonUni)}
+                    className="text-xs text-amber-500 mt-4 underline decoration-dotted"
+                  >
+                    {t2ShowNonUni ? 'Hide' : 'Add'} prior non-uniformed (Other Credited) service
+                  </button>
+                  {t2ShowNonUni && (
+                    <div className="grid sm:grid-cols-2 gap-4 mt-3 border-t border-slate-800 pt-3">
+                      <NumField label="Years of non-uniformed credited service" prefix="" value={t2NonUniYears} onChange={setT2NonUniYears} />
+                      <NumField label="Average earnings, last 5 years of that service" value={t2NonUniAvg} onChange={setT2NonUniAvg} />
+                    </div>
+                  )}
+                </>
               )}
             </Section>
 
@@ -819,25 +1265,25 @@ export default function PensionCalculator() {
               </div>
 
               <div className="border-t border-slate-800 pt-3">
-                <span className="block text-[13px] font-medium text-slate-300 mb-2">Add the annuity value to your pension</span>
+                <p className="text-xs text-amber-400 bg-amber-950/30 border border-amber-800/50 rounded-sm px-3 py-2 mb-3 leading-relaxed">
+                  These are part of the official Service Retirement formula, not optional extras. Leaving them at $0
+                  understates your pension. Your figures are on your PPF benefit estimate or webCOPS statement.
+                </p>
+
+                <span className="block text-[13px] font-medium text-slate-300 mb-2">ASF excess less shortage</span>
                 <SegGroup
-                  value={t2ShowEnhanced ? t2EnhancedMode : 'off'}
-                  onChange={(v) => {
-                    if (v === 'off') { setT2ShowEnhanced(false); return; }
-                    setT2ShowEnhanced(true);
-                    setT2EnhancedMode(v);
-                  }}
+                  value={t2EnhancedMode}
+                  onChange={setT2EnhancedMode}
                   options={[
-                    { value: 'off', label: "Don't include" },
                     { value: 'lumpsum', label: 'Estimate from ASF balance' },
                     { value: 'annual', label: 'I know my annual annuity figure' },
                   ]}
                 />
 
-                {t2ShowEnhanced && t2EnhancedMode === 'lumpsum' && (
+                {t2EnhancedMode === 'lumpsum' && (
                   <div className="grid sm:grid-cols-3 gap-4 mt-3">
-                    <NumField label="ASF / ITHP excess balance" value={t2ExcessBalance} onChange={setT2ExcessBalance} />
-                    <NumField label="Shortage balance (if any)" value={t2ShortageBalance} onChange={setT2ShortageBalance} />
+                    <NumField label="ASF balance in excess of required amount" value={t2ExcessBalance} onChange={setT2ExcessBalance} />
+                    <NumField label="ASF shortage (if any)" value={t2ShortageBalance} onChange={setT2ShortageBalance} />
                     <NumField
                       label="Actuarial factor ($ per $1,000)"
                       prefix=""
@@ -847,18 +1293,28 @@ export default function PensionCalculator() {
                     />
                   </div>
                 )}
-                {t2ShowEnhanced && t2EnhancedMode === 'annual' && (
+                {t2EnhancedMode === 'annual' && (
                   <div className="mt-3 max-w-xs">
-                    <NumField label="Annual annuity add-on" value={t2EnhancedAnnual} onChange={setT2EnhancedAnnual} hint="From your PPF benefit estimate letter or webCOPS statement." />
+                    <NumField label="Annual annuity value of ASF excess less shortage" value={t2EnhancedAnnual} onChange={setT2EnhancedAnnual} hint="From your PPF benefit estimate letter or webCOPS statement." />
                   </div>
                 )}
+
+                <div className="mt-4 pt-3 border-t border-slate-800 max-w-md">
+                  <NumField
+                    label="Annuity value of City ITHP contributions after your 20th anniversary"
+                    value={t2ITHPAnnuity}
+                    onChange={setT2ITHPAnnuity}
+                    suffix="/yr"
+                    hint="A separate line in the official formula from ASF excess/shortage above. Ask PPF for this figure — it isn't something this calculator can derive."
+                  />
+                </div>
               </div>
 
               <details className="mt-4">
-                <summary className="text-xs text-slate-500 cursor-pointer select-none">Contribution rate by age at appointment (reference)</summary>
+                <summary className="text-xs text-slate-400 cursor-pointer select-none">Contribution rate by age at appointment (reference)</summary>
                 <div className="mt-2 max-h-40 overflow-y-auto border border-slate-800 rounded-sm">
                   <table className="w-full text-xs font-mono">
-                    <thead className="text-slate-500 sticky top-0 bg-slate-900">
+                    <thead className="text-slate-400 sticky top-0 bg-slate-900">
                       <tr><th className="text-left px-2 py-1">Age</th><th className="text-right px-2 py-1">Required</th><th className="text-right px-2 py-1">Member</th></tr>
                     </thead>
                     <tbody>
@@ -875,6 +1331,9 @@ export default function PensionCalculator() {
               </details>
             </Section>
 
+            {purchasesLoading ? (
+              <LoadingSection title="Final Withdrawal at Retirement" badge="03" />
+            ) : isPremium ? (
             <Section title="Final Withdrawal at Retirement" badge="03" defaultOpen={false}>
               <p className="text-sm text-slate-400 leading-relaxed mb-3">
                 At retirement you may take a lump sum "final withdrawal" (final loan) of up to 90% of your ASF
@@ -898,7 +1357,7 @@ export default function PensionCalculator() {
                     <div>
                       <span className="block text-[13px] font-medium text-slate-300 mb-1">Maximum you can withdraw</span>
                       <div className="font-mono text-amber-400 text-lg">{fmt(t2Withdrawal ? t2Withdrawal.max : 0)}</div>
-                      <span className="text-xs text-slate-500">90% of your required amount</span>
+                      <span className="text-xs text-slate-400">90% of your required amount</span>
                     </div>
                   </div>
 
@@ -925,9 +1384,20 @@ export default function PensionCalculator() {
                           <TriangleAlert size={14} /> Capped at your maximum of {fmt(t2Withdrawal.max)}.
                         </p>
                       )}
+                      {num(t2WithdrawalAmount) === 0 && (
+                        <p className="text-xs text-amber-400 mt-2 flex items-start gap-1.5 bg-amber-950/30 border border-amber-800/50 rounded-sm px-3 py-2">
+                          <TriangleAlert size={14} className="shrink-0 mt-0.5" />
+                          Still set to $0 — nothing below will change until you drag the slider or type an amount
+                          here. A $0 withdrawal has no effect, by design.
+                        </p>
+                      )}
                     </div>
                   ) : (
                     <div className="mt-4">
+                      <div className="mb-3 flex items-baseline justify-between bg-slate-950/60 border border-slate-800 rounded-sm px-3 py-2">
+                        <span className="text-xs text-slate-400">Your pension right now, with VSF, before any withdrawal</span>
+                        <span className="font-mono text-sm text-slate-200">{fmt(t2.totalAnnual / 12)}/mo</span>
+                      </div>
                       <NumField
                         label="Target pension after withdrawal"
                         value={t2TargetMonthly}
@@ -955,7 +1425,7 @@ export default function PensionCalculator() {
                           </p>
                         )}
                         {!t2TargetNoWithdrawalNeeded && !t2TargetCapped && t2Withdrawal && t2Withdrawal.grossLumpSum > 0 && (
-                          <p className="text-xs text-slate-500 mt-2">
+                          <p className="text-xs text-slate-400 mt-2">
                             Withdrawing this amount brings your pension to {fmt(t2Withdrawal.pensionAfterAnnual / 12)}/mo.
                           </p>
                         )}
@@ -983,7 +1453,7 @@ export default function PensionCalculator() {
                       I'm 50+ or have 25+ years of service
                     </label>
                   </div>
-                  <p className="text-xs text-slate-500 mt-2 leading-snug">
+                  <p className="text-xs text-slate-400 mt-2 leading-snug">
                     Cash withdrawals are subject to 20% federal withholding, plus a 10% early-withdrawal penalty
                     unless you're over 50 or have 25+ years of uniformed service. A direct IRA rollover avoids both,
                     though the funds stay taxable whenever you eventually withdraw them from the IRA.
@@ -991,6 +1461,14 @@ export default function PensionCalculator() {
                 </>
               )}
             </Section>
+            ) : (
+              <LockedSection
+                title="Final Withdrawal at Retirement"
+                badge="03"
+                teaser="Model taking a lump sum at retirement — including working backward from a target take-home pension — and see exactly how much it reduces your monthly benefit."
+                onUnlock={() => setShowPaywall(true)}
+              />
+            )}
           </>
         )}
 
@@ -1010,7 +1488,7 @@ export default function PensionCalculator() {
                     { value: 'enhanced', label: 'Enhanced' },
                   ]}
                 />
-                <p className="text-xs text-slate-500 mt-1 leading-snug">
+                <p className="text-xs text-slate-400 mt-1 leading-snug">
                   Original: appointed 7/1/09–3/31/12 · Revised: 4/1/12–3/31/17 · Enhanced: on/after 4/1/17 (or opted in).
                 </p>
               </div>
@@ -1021,8 +1499,7 @@ export default function PensionCalculator() {
                   onChange={setT3RetType}
                   options={[
                     { value: 'vested', label: 'Vested' },
-                    { value: 'early', label: 'Early Service' },
-                    { value: 'normal', label: 'Normal Service' },
+                    { value: 'normal', label: 'Service Retirement' },
                     { value: 'odr', label: 'Ordinary Disability' },
                     { value: 'adr', label: 'Accident Disability' },
                   ]}
@@ -1036,7 +1513,7 @@ export default function PensionCalculator() {
                 prefix=""
                 value={t3Years}
                 onChange={setT3Years}
-                hint="Early Service needs 20+ years; Normal Service needs 22+ years without reduction."
+                hint="Service Retirement needs 20+ years, unreduced, under Chapter 55 of the Laws of 2025."
               />
               <NumField
                 label="Final Average Salary (FAS)"
@@ -1044,7 +1521,7 @@ export default function PensionCalculator() {
                 onChange={setT3FAS}
                 hint="Highest 3 consecutive calendar years / 36 months, with a 10% year-over-year cap."
               />
-              {(t3RetType === 'vested' || t3RetType === 'early' || t3RetType === 'normal') && (
+              {(t3RetType === 'vested' || t3RetType === 'normal') && (
                 <NumField
                   label="Estimated Social Security benefit at 62 (monthly)"
                   value={t3SS62}
@@ -1085,8 +1562,37 @@ export default function PensionCalculator() {
                 <TriangleAlert size={14} /> {retTypeLabelsT3[t3RetType]} typically requires more years of service than entered — figures below are illustrative only.
               </p>
             )}
+
+            {t3RetType === 'normal' && num(t3Years) >= 20 && (
+              <p className="text-xs text-amber-400 mt-3 flex items-start gap-1.5 bg-amber-950/30 border border-amber-800/50 rounded-sm px-3 py-2">
+                <TriangleAlert size={14} className="shrink-0 mt-0.5" />
+                Heads up: Service Retirement is a flat 50% of FAS once you're past 20 years — adding more years
+                beyond that won't change your core pension total. That's correct, not a bug (Chapter 55 of the Laws
+                of 2025 removed the old 22-year requirement — this now matches Tier 2's 20-year mark, just without
+                Tier 2's 1/60-per-year bonus for staying longer).
+              </p>
+            )}
+
+            {num(t3Years) > 45 && (
+              <p className="text-xs text-amber-400 mt-3 flex items-center gap-1.5">
+                <TriangleAlert size={14} /> {t3Years} years of service is unusually high for a NY Police career — double-check this wasn't a typo.
+              </p>
+            )}
+
+            <div className="mt-4 pt-3 border-t border-slate-800">
+              <NumField
+                label="Pension Longevity Enhancement (optional)"
+                value={t3LongevityEnhancement}
+                onChange={setT3LongevityEnhancement}
+                suffix="/yr"
+                hint="Rank-based boost at 25/30/35 years — depends on your rank and time in rank, so this calculator can't compute it. If you know your figure from a PPF statement or your union rep, enter it here; otherwise leave at 0."
+              />
+            </div>
           </Section>
 
+          {purchasesLoading ? (
+            <LoadingSection title="Final Withdrawal at Retirement" badge="02" />
+          ) : isPremium ? (
           <Section title="Final Withdrawal at Retirement" badge="02" defaultOpen={false}>
             <p className="text-sm text-slate-400 leading-relaxed mb-3">
               At retirement you may take a lump sum final withdrawal (final loan). Members who joined on or after
@@ -1151,6 +1657,13 @@ export default function PensionCalculator() {
                         <TriangleAlert size={14} /> Capped at your maximum of {fmt(t3Withdrawal.max)}.
                       </p>
                     )}
+                    {num(t3WithdrawalAmount) === 0 && (
+                      <p className="text-xs text-amber-400 mt-2 flex items-start gap-1.5 bg-amber-950/30 border border-amber-800/50 rounded-sm px-3 py-2">
+                        <TriangleAlert size={14} className="shrink-0 mt-0.5" />
+                        Still set to $0 — nothing below will change until you drag the slider or type an amount
+                        here. A $0 withdrawal has no effect, by design.
+                      </p>
+                    )}
                   </div>
                 ) : (
                   <div className="mt-4">
@@ -1167,6 +1680,12 @@ export default function PensionCalculator() {
                         />
                       </div>
                     )}
+                    <div className="mb-3 flex items-baseline justify-between bg-slate-950/60 border border-slate-800 rounded-sm px-3 py-2">
+                      <span className="text-xs text-slate-400">
+                        Your pension right now{t3.hasAgeSplit ? ` (${t3TargetBasis === 'before' ? 'before 62' : 'age 62+'})` : ''}, with VSF, before any withdrawal
+                      </span>
+                      <span className="font-mono text-sm text-slate-200">{fmt(t3TargetBaseAnnual / 12)}/mo</span>
+                    </div>
                     <NumField
                       label="Target pension after withdrawal"
                       value={t3TargetMonthly}
@@ -1193,7 +1712,7 @@ export default function PensionCalculator() {
                         </p>
                       )}
                       {!t3TargetNoWithdrawalNeeded && !t3TargetCapped && t3Withdrawal && t3Withdrawal.grossLumpSum > 0 && (
-                        <p className="text-xs text-slate-500 mt-2">
+                        <p className="text-xs text-slate-400 mt-2">
                           This same withdrawal applies to both periods — before 62 it leaves you with{' '}
                           {fmt(t3Withdrawal.pensionAfterBeforeAnnual / 12)}/mo, and at 62+ it leaves{' '}
                           {fmt(t3Withdrawal.pensionAfterAfterAnnual / 12)}/mo.
@@ -1223,21 +1742,32 @@ export default function PensionCalculator() {
                     I'm 50+ or have 25+ years of service
                   </label>
                 </div>
-                <p className="text-xs text-slate-500 mt-2 leading-snug">
+                <p className="text-xs text-slate-400 mt-2 leading-snug">
                   Cash withdrawals are subject to 20% federal withholding, plus a 10% early-withdrawal penalty unless
                   you're over 50 or have 25+ years of uniformed service. A direct IRA rollover avoids both.
                 </p>
               </>
             )}
           </Section>
+          ) : (
+            <LockedSection
+              title="Final Withdrawal at Retirement"
+              badge="02"
+              teaser="Model taking a lump sum at retirement — including working backward from a target take-home pension — and see exactly how much it reduces your monthly benefit."
+              onUnlock={() => setShowPaywall(true)}
+            />
+          )}
           </>
         )}
 
         {/* ============ DEFERRED COMP (shared, visually separated) ============ */}
+        {purchasesLoading ? (
+          <LoadingSection title="Deferred Compensation (457 Plan)" badge={tier === 'tier2' ? '04' : '03'} />
+        ) : isPremium ? (
         <Section title="Deferred Compensation (457 Plan)" badge={tier === 'tier2' ? '04' : '03'} defaultOpen={false}>
           <p className="text-sm text-slate-400 leading-relaxed mb-3">
             The NYC Deferred Compensation Plan is a separate, voluntary defined-contribution account — it is not part
-            of your NYPD pension formula and isn't guaranteed for life the way your pension is. It's shown separately
+            of your NY Police pension formula and isn't guaranteed for life the way your pension is. It's shown separately
             below so it never gets mixed into your pension figures.
           </p>
           <label className="flex items-center gap-2 text-sm text-slate-300 py-1.5 mb-3">
@@ -1267,6 +1797,14 @@ export default function PensionCalculator() {
             </>
           )}
         </Section>
+        ) : (
+          <LockedSection
+            title="Deferred Compensation (457 Plan)"
+            badge={tier === 'tier2' ? '04' : '03'}
+            teaser="Add your NYC Deferred Comp balance and see it alongside your pension as a combined retirement income estimate, kept clearly separate from your guaranteed pension."
+            onUnlock={() => setShowPaywall(true)}
+          />
+        )}
 
         {/* ============ RESULTS ============ */}
         <div className="mt-8">
@@ -1285,19 +1823,44 @@ export default function PensionCalculator() {
               />
               <div className="mt-4">
                 <LedgerRow
-                  label={t2.isService ? '50% of FAS + 1/60th after 20th year' : '1/40 × FAS × years of service'}
+                  label={
+                    t2.isService
+                      ? '50% of FAS + 1/60th after 20th year'
+                      : t2.isVested
+                      ? '1/40 × FAS × years of service'
+                      : t2.isODR
+                      ? 'Ordinary Disability Retirement benefit'
+                      : 'Accident Disability Retirement benefit'
+                  }
                   annual={t2.base}
                   monthly={t2.base / 12}
                 />
                 {t2ShowNonUni && (
                   <LedgerRow label="Prior non-uniformed service benefit" annual={t2.nonUniformBenefit} monthly={t2.nonUniformBenefit / 12} />
                 )}
-                {t2ShowEnhanced && (
+                {(t2.isService || t2.isVested) && (
+                  <>
+                    <LedgerRow
+                      label="Annuity value of ASF excess less shortage"
+                      sub={t2.enhancedAnnual === 0 ? 'Part of the official formula — still $0. Enter your ASF figures in section 02.' : undefined}
+                      annual={t2.enhancedAnnual}
+                      monthly={t2.enhancedAnnual / 12}
+                      negative={t2.enhancedAnnual < 0}
+                    />
+                    <LedgerRow
+                      label="Annuity value of City ITHP after 20th anniversary"
+                      sub={t2.ithpAnnual === 0 ? 'Part of the official formula — still $0. Enter your ITHP figure in section 02.' : undefined}
+                      annual={t2.ithpAnnual}
+                      monthly={t2.ithpAnnual / 12}
+                    />
+                  </>
+                )}
+                {t2.longevityAnnual > 0 && (
                   <LedgerRow
-                    label="ITHP / 50-50 / excess annuity add-on"
-                    annual={t2.enhancedAnnual}
-                    monthly={t2.enhancedAnnual / 12}
-                    negative={t2.enhancedAnnual < 0}
+                    label="Pension Longevity Enhancement"
+                    sub="Manually entered — not computed by this calculator."
+                    annual={t2.longevityAnnual}
+                    monthly={t2.longevityAnnual / 12}
                   />
                 )}
                 <LedgerRow
@@ -1309,7 +1872,7 @@ export default function PensionCalculator() {
                 />
                 <LedgerRow
                   label="Variable Supplements Fund (VSF)"
-                  sub={t2.vsfEligible ? 'Service retirees only; prorated in your retirement year.' : 'Not payable — Vested retirees do not receive VSF.'}
+                  sub={t2.vsfEligible ? 'Service retirees only; prorated in your retirement year.' : 'Not payable — only Service retirees receive VSF.'}
                   annual={t2.vsfAnnual}
                   monthly={t2.vsfAnnual / 12}
                 />
@@ -1335,10 +1898,22 @@ export default function PensionCalculator() {
                       negative
                     />
                     <LedgerRow
-                      label="Your pension after withdrawal"
+                      label="Pension after withdrawal — without VSF"
+                      sub="If you'd rather plan around your core pension alone and leave VSF out of the picture entirely."
+                      annual={Math.max(0, t2.pensionAnnual - t2Withdrawal.reductionAnnual)}
+                      monthly={Math.max(0, t2.pensionAnnual - t2Withdrawal.reductionAnnual) / 12}
+                      bold
+                    />
+                    <LedgerRow
+                      label="Pension after withdrawal — with VSF (total)"
                       annual={t2Withdrawal.pensionAfterAnnual}
                       monthly={t2Withdrawal.pensionAfterAnnual / 12}
                       bold
+                    />
+                    <TradeoffSummary
+                      beforeMonthly={t2.totalAnnual / 12}
+                      afterMonthly={t2Withdrawal.pensionAfterAnnual / 12}
+                      netCash={t2Withdrawal.netLumpSum}
                     />
                   </>
                 )}
@@ -1366,6 +1941,14 @@ export default function PensionCalculator() {
                   monthly={t3.beforeOffset / 12}
                   bold
                 />
+                {t3.longevityAnnual > 0 && (
+                  <LedgerRow
+                    label="— includes Pension Longevity Enhancement"
+                    sub="Manually entered — not computed by this calculator. Already folded into the total above."
+                    annual={t3.longevityAnnual}
+                    monthly={t3.longevityAnnual / 12}
+                  />
+                )}
 
                 {t3.hasAgeSplit && (
                   <LedgerRow
@@ -1423,25 +2006,64 @@ export default function PensionCalculator() {
                     {t3.hasAgeSplit ? (
                       <>
                         <LedgerRow
-                          label="Pension after withdrawal — before 62"
+                          label="Pension after withdrawal — without VSF, before 62"
+                          sub="Leaves VSF out entirely, if you'd rather plan around your core pension alone."
+                          annual={Math.max(0, t3.beforeOffset - t3Withdrawal.reductionAnnual)}
+                          monthly={Math.max(0, t3.beforeOffset - t3Withdrawal.reductionAnnual) / 12}
+                          bold
+                        />
+                        <LedgerRow
+                          label="Pension after withdrawal — without VSF, age 62+"
+                          annual={Math.max(0, t3.afterOffsetAnnual - t3Withdrawal.reductionAnnual)}
+                          monthly={Math.max(0, t3.afterOffsetAnnual - t3Withdrawal.reductionAnnual) / 12}
+                          bold
+                        />
+                        <LedgerRow
+                          label="Pension after withdrawal — with VSF, before 62 (total)"
                           annual={t3Withdrawal.pensionAfterBeforeAnnual}
                           monthly={t3Withdrawal.pensionAfterBeforeAnnual / 12}
                           bold
                         />
                         <LedgerRow
-                          label="Pension after withdrawal — age 62+"
+                          label="Pension after withdrawal — with VSF, age 62+ (total)"
                           annual={t3Withdrawal.pensionAfterAfterAnnual}
                           monthly={t3Withdrawal.pensionAfterAfterAnnual / 12}
                           bold
                         />
+                        <TradeoffSummary
+                          periodLabel="before age 62"
+                          beforeMonthly={t3.totalBeforeAnnual / 12}
+                          afterMonthly={t3Withdrawal.pensionAfterBeforeAnnual / 12}
+                          netCash={t3Withdrawal.netLumpSum}
+                        />
+                        <TradeoffSummary
+                          periodLabel="age 62 and after"
+                          beforeMonthly={t3.totalAfterAnnual / 12}
+                          afterMonthly={t3Withdrawal.pensionAfterAfterAnnual / 12}
+                          netCash={t3Withdrawal.netLumpSum}
+                        />
                       </>
                     ) : (
-                      <LedgerRow
-                        label="Pension after withdrawal"
+                      <>
+                        <LedgerRow
+                          label="Pension after withdrawal — without VSF"
+                          sub="Leaves VSF out entirely, if you'd rather plan around your core pension alone."
+                          annual={Math.max(0, t3.afterOffsetAnnual - t3Withdrawal.reductionAnnual)}
+                          monthly={Math.max(0, t3.afterOffsetAnnual - t3Withdrawal.reductionAnnual) / 12}
+                          bold
+                        />
+                        <LedgerRow
+                        label="Pension after withdrawal — with VSF (total)"
                         annual={t3Withdrawal.pensionAfterAfterAnnual}
                         monthly={t3Withdrawal.pensionAfterAfterAnnual / 12}
                         bold
                       />
+                        <TradeoffSummary
+                          beforeMonthly={t3.totalAfterAnnual / 12}
+                          afterMonthly={t3Withdrawal.pensionAfterAfterAnnual / 12}
+                          netCash={t3Withdrawal.netLumpSum}
+                        />
+                      </>
                     )}
                   </>
                 )}
@@ -1462,14 +2084,20 @@ export default function PensionCalculator() {
             </div>
           )}
 
-          <p className="text-xs text-slate-600 mt-4 leading-relaxed">
+          <p className="text-xs text-slate-400 mt-4 leading-relaxed">
             Figures exclude future Cost-of-Living Adjustments (Tier 2, from age 55–62) and Escalation (Tier 3, up to
-            3%/yr from 25 years of service), both of which increase your benefit over time. Source: NYC Police
-            Pension Fund Summary Plan Descriptions, October 2024.
+            3%/yr from 25 years of service), both of which increase your benefit over time — as do the rank-based
+            Pension Longevity Enhancements available at 25/30/35 years, which aren't modeled here. Source: NYC
+            Police Pension Fund Summary Plan Descriptions, June 2026.
           </p>
         </div>
 
         {/* ============ ACCURACY CHECK AGAINST REAL STATEMENT ============ */}
+        {purchasesLoading ? (
+          <div className="mt-10">
+            <LoadingSection title="Accuracy Check Against Your Statement" />
+          </div>
+        ) : isPremium ? (
         <div className="mt-10">
           <div className="flex items-center gap-2 mb-3">
             <FileText size={18} className="text-amber-500" />
@@ -1478,18 +2106,39 @@ export default function PensionCalculator() {
           <p className="text-sm text-slate-400 leading-relaxed mb-4">
             See how close this estimate lands to your real PPF benefit estimate or annual statement. Browsers can't
             decode a PDF's compressed text without a dedicated library, so this can't open your PDF directly — open
-            it yourself, select all the text, copy it, and paste it below. A plain <code className="text-slate-300">.txt</code> export
-            can also be uploaded directly.
+            it yourself, select all the text, copy it, and paste it below. A plain <code className="text-slate-300">.txt</code> export,
+            or a photo/screenshot of your statement, can also be uploaded directly — screenshots are read
+            on your device using on-screen text recognition, nothing is uploaded anywhere.
           </p>
 
           <div className="border border-slate-800 bg-slate-900/60 rounded-sm p-4 mb-4">
-            <span className="block text-[13px] font-medium text-slate-300 mb-2">1. Paste or upload your statement text</span>
+            <span className="block text-[13px] font-medium text-slate-300 mb-2">1. Paste, upload, or photograph your statement</span>
 
-            <label className="inline-flex items-center gap-2 bg-slate-950 border border-slate-700 rounded-sm px-4 py-2.5 text-sm text-slate-300 cursor-pointer mb-3">
-              <Upload size={16} className="text-amber-500" />
-              {fileName ? fileName : 'Upload a .txt file'}
-              <input type="file" accept=".txt,text/plain,.pdf" onChange={handleFileUpload} className="hidden" />
+            <label
+              className={`inline-flex items-center gap-2 bg-slate-950 border border-slate-700 rounded-sm px-4 py-2.5 text-sm text-slate-300 mb-3 ${
+                ocrLoading ? 'opacity-60' : 'cursor-pointer'
+              }`}
+            >
+              {ocrLoading ? (
+                <Loader2 size={16} className="text-amber-500 animate-spin" />
+              ) : (
+                <Upload size={16} className="text-amber-500" />
+              )}
+              {ocrLoading ? `Reading image… ${ocrProgress}%` : fileName ? fileName : 'Upload a photo, screenshot, or .txt file'}
+              <input
+                type="file"
+                accept=".txt,text/plain,image/*"
+                onChange={handleFileUpload}
+                disabled={ocrLoading}
+                className="hidden"
+              />
             </label>
+            {ocrLoading && (
+              <p className="text-xs text-slate-400 mb-3 leading-snug">
+                Recognizing text on your device — this can take 10-30 seconds depending on the photo, and nothing is
+                sent anywhere. First use may take a bit longer while the recognition model downloads.
+              </p>
+            )}
             {fileError && (
               <p className="text-xs text-amber-400 mb-3 flex items-start gap-1.5">
                 <TriangleAlert size={14} className="shrink-0 mt-0.5" /> {fileError}
@@ -1506,8 +2155,8 @@ export default function PensionCalculator() {
             <button
               type="button"
               onClick={handleScan}
-              disabled={!statementText.trim()}
-              className="mt-3 bg-amber-500 disabled:bg-slate-800 disabled:text-slate-500 text-slate-950 font-medium text-sm rounded-sm px-4 py-2.5"
+              disabled={!statementText.trim() || ocrLoading}
+              className="mt-3 bg-amber-500 disabled:bg-slate-800 disabled:text-slate-400 text-slate-950 font-medium text-sm rounded-sm px-4 py-2.5"
             >
               Scan for figures
             </button>
@@ -1520,7 +2169,8 @@ export default function PensionCalculator() {
                 <ExtractedRow label="Required amount / contributions" match={extracted.required} onUse={() => applyExtracted('required')} />
                 <ExtractedRow label="Annual pension" match={extracted.annual} onUse={() => applyExtracted('annual')} />
                 <ExtractedRow label="Monthly pension" match={extracted.monthly} onUse={() => applyExtracted('monthly')} />
-                <p className="text-xs text-slate-500 mt-2 leading-snug">
+                <ExtractedRow label="Longevity Enhancement" match={extracted.longevity} onUse={() => applyExtracted('longevity')} />
+                <p className="text-xs text-slate-400 mt-2 leading-snug">
                   This is pattern-matching, not real comprehension — always check the quoted snippet actually says
                   what you think before using it.
                 </p>
@@ -1586,7 +2236,7 @@ export default function PensionCalculator() {
                 </>
               )}
 
-              <p className="text-xs text-slate-500 mt-4 leading-relaxed">
+              <p className="text-xs text-slate-400 mt-4 leading-relaxed">
                 A gap usually comes from something this calculator doesn't model automatically: an already-applied
                 COLA or Escalation increase, a survivor option reduction, a final withdrawal or loan you haven't
                 entered above, or an ITHP/50-50/excess annuity value that differs from what's in the ITHP section.
@@ -1595,7 +2245,28 @@ export default function PensionCalculator() {
             </div>
           )}
         </div>
+        ) : (
+          <div className="mt-10">
+            <LockedSection
+              title="Accuracy Check Against Your Statement"
+              teaser="Paste text from your real PPF benefit estimate and see exactly how close this calculator's numbers land to your official figures, with the gap explained."
+              onUnlock={() => setShowPaywall(true)}
+            />
+          </div>
+        )}
       </div>
+
+      {showPaywall && (
+        <Paywall
+          onClose={() => setShowPaywall(false)}
+          purchasePackage={purchasePackage}
+          restorePurchases={restorePurchases}
+          offerings={offerings}
+          loading={purchasesLoading}
+          error={purchasesError}
+          isNative={isNative}
+        />
+      )}
     </div>
   );
 }
