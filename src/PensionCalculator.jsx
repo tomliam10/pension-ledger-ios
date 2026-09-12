@@ -326,6 +326,50 @@ function LockedSection({ title, badge, teaser, onUnlock }) {
   );
 }
 
+function PendingLawPreview({ currentMonthly, pendingMonthly, currentFAS, pendingFAS }) {
+  const diff = pendingMonthly - currentMonthly;
+  return (
+    <div className="mt-4 border border-sky-700/50 bg-sky-950/20 rounded-sm p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <span className="text-[10px] font-mono tracking-wide text-sky-400 border border-sky-700/70 rounded-sm px-1.5 py-0.5">
+          PENDING — NOT YET LAW
+        </span>
+        <span className="font-serif text-base text-slate-100">If S7808A is signed</span>
+      </div>
+      <p className="text-xs text-slate-400 leading-relaxed mb-3">
+        NY Senate Bill S7808A ("NYPD Tier 2A") passed the Senate 59-1 on 6/1/2026 and the Assembly on 6/4/2026. As of
+        this writing it awaits the Governor's signature — <strong className="text-slate-300">nothing changes unless
+        and until it's signed.</strong> If enacted, it would let Tier 2 members hired on or after 7/1/2000 use the
+        greater of their final 12 months or their best 3 consecutive years — the same option pre-2000 Tier 2
+        members already have.
+      </p>
+      <div className="grid grid-cols-2 gap-3">
+        <div className="bg-slate-950/60 border border-slate-700 rounded-sm px-3 py-3">
+          <div className="text-xs text-slate-400 mb-1">Current law (final 12 months)</div>
+          <div className="font-mono text-lg text-slate-100">{fmt(currentMonthly)}/mo</div>
+          <div className="text-xs text-slate-400">FAS: {fmt(currentFAS)}</div>
+        </div>
+        <div className="bg-slate-950/60 border border-sky-700/60 rounded-sm px-3 py-3">
+          <div className="text-xs text-slate-400 mb-1">If signed (best of 3 years)</div>
+          <div className="font-mono text-lg text-sky-400">{fmt(pendingMonthly)}/mo</div>
+          <div className="text-xs text-slate-400">FAS: {fmt(pendingFAS)}</div>
+        </div>
+      </div>
+      {diff > 0 ? (
+        <p className="text-sm text-slate-200 leading-relaxed mt-3">
+          Your best 3 years beat your final 12 months — if signed, this could add{' '}
+          <span className="font-mono text-sky-400">{fmt(diff)}/mo</span> to your pension.
+        </p>
+      ) : (
+        <p className="text-xs text-slate-400 leading-relaxed mt-3">
+          Your final 12 months already matches or beats your best 3 years, so this bill wouldn't change your figure
+          even if signed — it only ever helps, never hurts, since it's a "greater of" test.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function TradeoffSummary({ beforeMonthly, afterMonthly, netCash, periodLabel }) {
   const diff = beforeMonthly - afterMonthly;
   return (
@@ -466,6 +510,7 @@ function PensionCalculator() {
 
   /* ---------------- Tier 2 state ---------------- */
   const [t2AppointDate, setT2AppointDate] = useState('after2000');
+  const [t2Best3YearAvg, setT2Best3YearAvg] = useState('0');
   const [t2RetType, setT2RetType] = useState('service');
   const [t2Years, setT2Years] = useState('20');
   const [t2FAS, setT2FAS] = useState('125000');
@@ -563,6 +608,7 @@ function PensionCalculator() {
       if (saved.t2ShortageBalance !== undefined) setT2ShortageBalance(saved.t2ShortageBalance);
       if (saved.t2Factor !== undefined) setT2Factor(saved.t2Factor);
       if (saved.t2ITHPAnnuity !== undefined) setT2ITHPAnnuity(saved.t2ITHPAnnuity);
+      if (saved.t2Best3YearAvg !== undefined) setT2Best3YearAvg(saved.t2Best3YearAvg);
       if (saved.t2ShowWithdrawal !== undefined) setT2ShowWithdrawal(saved.t2ShowWithdrawal);
       if (saved.t2WithdrawalMode !== undefined) setT2WithdrawalMode(saved.t2WithdrawalMode);
       if (saved.t2RequiredAmount !== undefined) setT2RequiredAmount(saved.t2RequiredAmount);
@@ -612,12 +658,12 @@ function PensionCalculator() {
   useEffect(() => {
     if (!hasRestored.current) return; // don't overwrite saved data with defaults before restore runs
     try {
-      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3FAS, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly }));
+      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3YearAvg, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3FAS, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly }));
     } catch (e) {
       // Storage full or unavailable — inputs just won't persist this session.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3FAS, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly]);
+  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3YearAvg, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3FAS, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly]);
 
   function resetAll() {
     setTier('tier2');
@@ -639,6 +685,7 @@ function PensionCalculator() {
     setT2ShortageBalance('0');
     setT2Factor('82');
     setT2ITHPAnnuity('0');
+    setT2Best3YearAvg('0');
     setT2ShowWithdrawal(false);
     setT2WithdrawalMode('amount');
     setT2RequiredAmount('150000');
@@ -702,21 +749,26 @@ function PensionCalculator() {
     const under20Warning = isService && years < 20;
     const unrealisticYears = years > 45;
 
-    let base = 0;
-    if (isService) {
-      base = 0.5 * fas + (1 / 60) * earningsAfter20;
-    } else if (isVested) {
-      base = (1 / 40) * fas * years;
-    } else if (isODR) {
-      // Ordinary Disability Retirement — tiered by years of credited service.
-      if (years < 10) base = fas / 3;
-      else if (years < 20) base = 0.5 * fas;
-      else base = (years / 40) * fas;
-    } else if (isADR) {
-      // Accident Disability Retirement — flat 75%, plus the same post-20th-anniversary
-      // earnings credit Service Retirement gets.
-      base = 0.75 * fas + (1 / 60) * earningsAfter20;
+    // Factored out so the exact same formula can be re-run under the pending S7808A
+    // "best of 3 years" scenario below, without duplicating this branching logic.
+    function baseFor(fasValue) {
+      if (isService) return 0.5 * fasValue + (1 / 60) * earningsAfter20;
+      if (isVested) return (1 / 40) * fasValue * years;
+      if (isODR) {
+        // Ordinary Disability Retirement — tiered by years of credited service.
+        if (years < 10) return fasValue / 3;
+        if (years < 20) return 0.5 * fasValue;
+        return (years / 40) * fasValue;
+      }
+      if (isADR) {
+        // Accident Disability Retirement — flat 75%, plus the same post-20th-anniversary
+        // earnings credit Service Retirement gets.
+        return 0.75 * fasValue + (1 / 60) * earningsAfter20;
+      }
+      return 0;
     }
+
+    const base = baseFor(fas);
     // Prior non-uniformed service credit only applies to Service and Vested per the SPD.
     const coreAnnual = base + (isService || isVested ? nonUniformBenefit : 0);
 
@@ -743,15 +795,32 @@ function PensionCalculator() {
     const pensionAnnual = Math.max(0, coreAnnual + enhancedAnnual + ithpAnnual + longevityAnnual);
     const totalAnnual = pensionAnnual + vsfAnnual;
 
+    // --- Pending legislation preview: NY Senate Bill S7808A ("NYPD Tier 2A") ---
+    // Passed the Senate 59-1 on 6/1/2026 and the Assembly on 6/4/2026 — sitting with
+    // the Governor as of this writing, NOT yet signed into law. If signed, it would
+    // give Tier 2 members appointed on/after 7/1/2000 the same "greater of final 12
+    // months or best 3 consecutive years" FAS test that pre-2000 Tier 2 members
+    // already have today. Only relevant to that post-2000 group. This is a planning
+    // preview only — never substituted into the pensionAnnual/totalAnnual above.
+    const showPendingLaw = t2AppointDate === 'after2000';
+    const best3YearAvg = num(t2Best3YearAvg);
+    const pendingFAS = Math.max(fas, best3YearAvg);
+    const pendingBase = baseFor(pendingFAS);
+    const pendingCoreAnnual = pendingBase + (isService || isVested ? nonUniformBenefit : 0);
+    const pendingPensionAnnual = Math.max(0, pendingCoreAnnual + enhancedAnnual + ithpAnnual + longevityAnnual);
+    const pendingTotalAnnual = pendingPensionAnnual + vsfAnnual;
+    const pendingMakesADifference = showPendingLaw && best3YearAvg > fas;
+
     return {
       years, fas, base, nonUniformBenefit, coreAnnual, enhancedAnnual, ithpAnnual, longevityAnnual,
       vsfEligible, vsfAnnual, pensionAnnual, totalAnnual, under20Warning, unrealisticYears,
       isService, isVested, isODR, isADR, usesEarningsAfter20,
+      showPendingLaw, pendingFAS, pendingTotalAnnual, pendingMakesADifference,
     };
   }, [
     t2Years, t2FAS, t2EarningsAfter20, t2RetType, t2ShowNonUni, t2NonUniYears, t2NonUniAvg,
     t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity,
-    t2LongevityEnhancement,
+    t2LongevityEnhancement, t2AppointDate, t2Best3YearAvg,
   ]);
 
   const t2Rate = TIER2_RATE_TABLE.find((r) => r.age === Math.round(num(t2AppointAge))) || TIER2_RATE_TABLE[5];
@@ -1123,7 +1192,7 @@ function PensionCalculator() {
                   <p className="text-xs text-slate-400 mt-1 leading-snug">
                     {t2AppointDate === 'before2000'
                       ? 'Your FAS is the greatest of: final 12 months, average of final 36 months, or average of your best 3 consecutive calendar years.'
-                      : 'Your FAS is your pensionable earnings in the final 12 months before retirement.'}
+                      : 'Your FAS is your pensionable earnings in the final 12 months before retirement — see the pending-legislation preview below.'}
                   </p>
                 </div>
                 <div>
@@ -1159,6 +1228,14 @@ function PensionCalculator() {
                   onChange={setT2FAS}
                   hint="Base salary, overtime, night differential, holiday pay, worked vacation, and allowable longevity."
                 />
+                {t2.showPendingLaw && (
+                  <NumField
+                    label="Average of your best 3 consecutive years (if higher)"
+                    value={t2Best3YearAvg}
+                    onChange={setT2Best3YearAvg}
+                    hint="Optional — only matters if NY Senate Bill S7808A is signed. See the pending-legislation preview in your results below."
+                  />
+                )}
                 {t2.usesEarningsAfter20 && t2.years > 20 && (
                   <NumField
                     label="Pensionable earnings after your 20th anniversary"
@@ -1877,6 +1954,14 @@ function PensionCalculator() {
                   monthly={t2.vsfAnnual / 12}
                 />
                 <LedgerRow label="Pension with VSF (total)" annual={t2.totalAnnual} monthly={t2.totalAnnual / 12} bold />
+                {t2.showPendingLaw && (
+                  <PendingLawPreview
+                    currentMonthly={t2.totalAnnual / 12}
+                    pendingMonthly={t2.pendingTotalAnnual / 12}
+                    currentFAS={t2.fas}
+                    pendingFAS={t2.pendingFAS}
+                  />
+                )}
 
                 {t2ShowWithdrawal && t2Withdrawal && t2Withdrawal.grossLumpSum > 0 && (
                   <>
