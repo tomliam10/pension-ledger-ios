@@ -43,6 +43,41 @@ function num(v) {
   return n < 0 ? 0 : n; // nothing in this calculator is legitimately negative
 }
 
+// 2026 federal income tax brackets, per IRS Revenue Procedure 2025-32.
+// [threshold where this rate starts, rate]. NYPD pensions are exempt from NY State
+// and NYC income tax, so only federal tax applies here.
+const FEDERAL_BRACKETS_2026 = {
+  single: [[0, 0.10], [12400, 0.12], [50400, 0.22], [105700, 0.24], [201775, 0.32], [256225, 0.35], [640600, 0.37]],
+  mfj: [[0, 0.10], [24800, 0.12], [100800, 0.22], [211400, 0.24], [403550, 0.32], [512450, 0.35], [768700, 0.37]],
+  hoh: [[0, 0.10], [17700, 0.12], [67450, 0.22], [105700, 0.24], [201775, 0.32], [256200, 0.35], [640600, 0.37]],
+};
+const STANDARD_DEDUCTION_2026 = { single: 16100, mfj: 32200, hoh: 24150 };
+
+function federalTaxOnTaxableIncome(taxableIncome, filingStatus) {
+  const brackets = FEDERAL_BRACKETS_2026[filingStatus] || FEDERAL_BRACKETS_2026.single;
+  let tax = 0;
+  for (let i = 0; i < brackets.length; i++) {
+    const [threshold, rate] = brackets[i];
+    if (taxableIncome <= threshold) break;
+    const nextThreshold = i + 1 < brackets.length ? brackets[i + 1][0] : Infinity;
+    tax += (Math.min(taxableIncome, nextThreshold) - threshold) * rate;
+  }
+  return tax;
+}
+
+// Estimates federal tax attributable specifically to the pension, by comparing tax
+// with-and-without it — this correctly reflects that the pension is taxed at
+// whatever marginal rate it lands on once stacked on top of other income, rather
+// than assuming it's taxed in isolation from $0.
+function estimatePensionFederalTax(pensionAnnual, otherAnnual, filingStatus) {
+  const stdDeduction = STANDARD_DEDUCTION_2026[filingStatus] || STANDARD_DEDUCTION_2026.single;
+  const taxableWithPension = Math.max(0, pensionAnnual + otherAnnual - stdDeduction);
+  const taxableOtherOnly = Math.max(0, otherAnnual - stdDeduction);
+  const taxWithPension = federalTaxOnTaxableIncome(taxableWithPension, filingStatus);
+  const taxOtherOnly = federalTaxOnTaxableIncome(taxableOtherOnly, filingStatus);
+  return Math.max(0, taxWithPension - taxOtherOnly);
+}
+
 /* ---------------------------------------------------------------
    Statement scanning — best-effort text matching over text the
    member pastes from their own PDF statement. Browsers can't
@@ -370,7 +405,7 @@ function PendingLawPreview({ currentMonthly, pendingMonthly, currentFAS, pending
   );
 }
 
-function HeadlineNumber({ monthly, yearly, label = 'Your Estimated Pension' }) {
+function HeadlineNumber({ monthly, yearly, label = 'Your Estimated Pension', note }) {
   return (
     <div className="text-center py-4 mb-4 border-b border-slate-800">
       <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</div>
@@ -378,25 +413,50 @@ function HeadlineNumber({ monthly, yearly, label = 'Your Estimated Pension' }) {
         {fmt(monthly)}<span className="text-lg text-slate-400 font-normal">/mo</span>
       </div>
       <div className="text-sm text-slate-400 mt-1">{fmt(yearly)}/yr</div>
+      {note && (
+        <p className="text-xs text-sky-400 bg-sky-950/20 border border-sky-800/50 rounded-sm px-3 py-2 mt-3 text-left leading-relaxed">
+          {note}
+        </p>
+      )}
     </div>
   );
 }
 
-function HeadlineSplit({ beforeMonthly, afterMonthly }) {
+function HeadlineSplit({ beforeMonthly, afterMonthly, note }) {
   return (
-    <div className="grid grid-cols-2 gap-3 text-center py-4 mb-4 border-b border-slate-800">
-      <div>
-        <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Before Age 62</div>
-        <div className="font-mono text-2xl sm:text-3xl font-bold text-amber-400">
-          {fmt(beforeMonthly)}<span className="text-sm text-slate-400 font-normal">/mo</span>
+    <div className="py-4 mb-4 border-b border-slate-800">
+      <div className="grid grid-cols-2 gap-3 text-center">
+        <div>
+          <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Before Age 62</div>
+          <div className="font-mono text-2xl sm:text-3xl font-bold text-amber-400">
+            {fmt(beforeMonthly)}<span className="text-sm text-slate-400 font-normal">/mo</span>
+          </div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Age 62 and After</div>
+          <div className="font-mono text-2xl sm:text-3xl font-bold text-amber-400">
+            {fmt(afterMonthly)}<span className="text-sm text-slate-400 font-normal">/mo</span>
+          </div>
         </div>
       </div>
-      <div>
-        <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Age 62 and After</div>
-        <div className="font-mono text-2xl sm:text-3xl font-bold text-amber-400">
-          {fmt(afterMonthly)}<span className="text-sm text-slate-400 font-normal">/mo</span>
-        </div>
-      </div>
+      {note && (
+        <p className="text-xs text-sky-400 bg-sky-950/20 border border-sky-800/50 rounded-sm px-3 py-2 mt-3 text-left leading-relaxed">
+          {note}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function NetPayEstimate({ label, grossAnnual, filingStatus, otherIncomeAnnual }) {
+  const tax = estimatePensionFederalTax(grossAnnual, otherIncomeAnnual, filingStatus);
+  const net = Math.max(0, grossAnnual - tax);
+  return (
+    <div className="border border-slate-700 bg-slate-950/60 rounded-sm px-3 py-3">
+      {label && <div className="text-xs text-slate-400 mb-2">{label}</div>}
+      <LedgerRow label="Gross pension" annual={grossAnnual} monthly={grossAnnual / 12} />
+      <LedgerRow label="Estimated federal tax" annual={tax} monthly={tax / 12} negative />
+      <LedgerRow label="Estimated net (take-home)" annual={net} monthly={net / 12} bold />
     </div>
   );
 }
@@ -536,8 +596,7 @@ export default function PensionCalculatorWithBoundary() {
 
 function PensionCalculator() {
   const [tier, setTier] = useState('tier2');
-  const { isPremium: _ip, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
-  const isPremium = true; // TEMP: personal testing only — revert before real release
+  const { isPremium, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
   const [showPaywall, setShowPaywall] = useState(false);
 
   /* ---------------- Tier 2 state ---------------- */
@@ -601,6 +660,9 @@ function PensionCalculator() {
 
   /* ---------------- Deferred Comp (shared) ---------------- */
   const [showDefComp, setShowDefComp] = useState(false);
+  const [showNetPay, setShowNetPay] = useState(false);
+  const [taxFilingStatus, setTaxFilingStatus] = useState('single');
+  const [otherTaxableIncome, setOtherTaxableIncome] = useState('0');
   const [defCompBalance, setDefCompBalance] = useState('0');
   const [defCompMode, setDefCompMode] = useState('rate');
   const [defCompRate, setDefCompRate] = useState('4');
@@ -679,6 +741,9 @@ function PensionCalculator() {
       if (saved.t3Rollover !== undefined) setT3Rollover(saved.t3Rollover);
       if (saved.t3PenaltyExempt !== undefined) setT3PenaltyExempt(saved.t3PenaltyExempt);
       if (saved.showDefComp !== undefined) setShowDefComp(saved.showDefComp);
+      if (saved.showNetPay !== undefined) setShowNetPay(saved.showNetPay);
+      if (saved.taxFilingStatus !== undefined) setTaxFilingStatus(saved.taxFilingStatus);
+      if (saved.otherTaxableIncome !== undefined) setOtherTaxableIncome(saved.otherTaxableIncome);
       if (saved.defCompBalance !== undefined) setDefCompBalance(saved.defCompBalance);
       if (saved.defCompMode !== undefined) setDefCompMode(saved.defCompMode);
       if (saved.defCompRate !== undefined) setDefCompRate(saved.defCompRate);
@@ -699,12 +764,12 @@ function PensionCalculator() {
   useEffect(() => {
     if (!hasRestored.current) return; // don't overwrite saved data with defaults before restore runs
     try {
-      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly }));
+      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, statementText, officialAnnual, officialMonthly }));
     } catch (e) {
       // Storage full or unavailable — inputs just won't persist this session.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly]);
+  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, statementText, officialAnnual, officialMonthly]);
 
   function resetAll() {
     setTier('tier2');
@@ -760,6 +825,9 @@ function PensionCalculator() {
     setT3Rollover(false);
     setT3PenaltyExempt(false);
     setShowDefComp(false);
+    setShowNetPay(false);
+    setTaxFilingStatus('single');
+    setOtherTaxableIncome('0');
     setDefCompBalance('0');
     setDefCompMode('rate');
     setDefCompRate('4');
@@ -1981,6 +2049,79 @@ function PensionCalculator() {
           />
         )}
 
+        <Section title="Net Pay Estimate (After Federal Tax)" badge={tier === 'tier2' ? '05' : '04'} defaultOpen={false}>
+          <p className="text-sm text-slate-400 leading-relaxed mb-3">
+            <strong className="text-slate-300">Your NYPD pension is exempt from New York State and NYC income
+            tax</strong> — that's real, settled state tax law, not a loophole. Only federal income tax applies to
+            it. This estimates that federal tax using current IRS brackets, so you can see roughly what actually
+            lands in your account each month.
+          </p>
+          <label className="flex items-center gap-2 text-sm text-slate-300 py-1.5 mb-3">
+            <input type="checkbox" checked={showNetPay} onChange={(e) => setShowNetPay(e.target.checked)} className="accent-amber-500" />
+            Show a net pay estimate
+          </label>
+          {showNetPay && (
+            <>
+              <div className="grid sm:grid-cols-2 gap-4 mb-3">
+                <div>
+                  <span className="block text-[13px] font-medium text-slate-300 mb-1">Filing status</span>
+                  <SegGroup
+                    value={taxFilingStatus}
+                    onChange={setTaxFilingStatus}
+                    options={[
+                      { value: 'single', label: 'Single' },
+                      { value: 'mfj', label: 'Married filing jointly' },
+                      { value: 'hoh', label: 'Head of household' },
+                    ]}
+                  />
+                </div>
+                <NumField
+                  label="Other annual taxable income (optional)"
+                  value={otherTaxableIncome}
+                  onChange={setOtherTaxableIncome}
+                  hint="Deferred Comp withdrawals, a second job, Social Security's taxable portion, etc. — stacking this on top gets your pension's real marginal rate right, since it isn't taxed starting from $0 if you have other income."
+                />
+              </div>
+
+              {tier === 'tier2' ? (
+                <NetPayEstimate
+                  grossAnnual={t2.totalAnnual}
+                  filingStatus={taxFilingStatus}
+                  otherIncomeAnnual={num(otherTaxableIncome)}
+                />
+              ) : t3.hasAgeSplit ? (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <NetPayEstimate
+                    label="Before age 62"
+                    grossAnnual={t3.totalBeforeAnnual}
+                    filingStatus={taxFilingStatus}
+                    otherIncomeAnnual={num(otherTaxableIncome)}
+                  />
+                  <NetPayEstimate
+                    label="Age 62 and after"
+                    grossAnnual={t3.totalAfterAnnual}
+                    filingStatus={taxFilingStatus}
+                    otherIncomeAnnual={num(otherTaxableIncome)}
+                  />
+                </div>
+              ) : (
+                <NetPayEstimate
+                  grossAnnual={t3.totalAfterAnnual}
+                  filingStatus={taxFilingStatus}
+                  otherIncomeAnnual={num(otherTaxableIncome)}
+                />
+              )}
+
+              <p className="text-xs text-slate-400 mt-3 leading-relaxed">
+                Uses 2026 federal brackets and the standard deduction only — it doesn't model itemized deductions,
+                tax credits, the senior deduction, or how withholding elections affect your paycheck-to-paycheck
+                amount versus what you actually owe at filing. Brackets and deductions change most years. This is a
+                planning estimate, not tax advice — a tax professional can give you a figure to actually rely on.
+              </p>
+            </>
+          )}
+        </Section>
+
         {/* ============ RESULTS ============ */}
         <div className="mt-8">
           <div className="flex items-center gap-2 mb-3">
@@ -1990,7 +2131,17 @@ function PensionCalculator() {
 
           {tier === 'tier2' ? (
             <div className="border border-amber-700/40 bg-slate-900 rounded-sm p-5">
-              <HeadlineNumber monthly={t2.totalAnnual / 12} yearly={t2.totalAnnual} />
+              <HeadlineNumber
+                monthly={t2.totalAnnual / 12}
+                yearly={t2.totalAnnual}
+                note={
+                  t2.pendingMakesADifference
+                    ? `This reflects your Final Average Salary field only, which is currently ${fmt(t2.fas)}. Your best-3-years entries below show a higher pending-law figure: ${fmt(t2.pendingTotalAnnual / 12)}/mo — see the "If S7808A is signed" box further down.`
+                    : t2.fas === 0
+                    ? 'Your Final Average Salary is still $0, so this only reflects VSF. Fill in your FAS in section 01 for a real estimate.'
+                    : undefined
+                }
+              />
               <CompositionBar
                 segments={[
                   { label: 'Core pension', value: t2.coreAnnual + t2.enhancedAnnual, color: '#f59e0b' },
@@ -2113,9 +2264,17 @@ function PensionCalculator() {
           ) : (
             <div className="border border-amber-700/40 bg-slate-900 rounded-sm p-5">
               {t3.hasAgeSplit ? (
-                <HeadlineSplit beforeMonthly={t3.totalBeforeAnnual / 12} afterMonthly={t3.totalAfterAnnual / 12} />
+                <HeadlineSplit
+                  beforeMonthly={t3.totalBeforeAnnual / 12}
+                  afterMonthly={t3.totalAfterAnnual / 12}
+                  note={t3.fas === 0 ? 'Your Year 1/2/3 earnings in section 01 are still $0, so this only reflects VSF (if eligible). Fill them in for a real estimate.' : undefined}
+                />
               ) : (
-                <HeadlineNumber monthly={t3.totalAfterAnnual / 12} yearly={t3.totalAfterAnnual} />
+                <HeadlineNumber
+                  monthly={t3.totalAfterAnnual / 12}
+                  yearly={t3.totalAfterAnnual}
+                  note={t3.fas === 0 ? 'Your Year 1/2/3 earnings in section 01 are still $0, so this only reflects VSF (if eligible). Fill them in for a real estimate.' : undefined}
+                />
               )}
               <CompositionBar
                 segments={[
