@@ -370,6 +370,37 @@ function PendingLawPreview({ currentMonthly, pendingMonthly, currentFAS, pending
   );
 }
 
+function HeadlineNumber({ monthly, yearly, label = 'Your Estimated Pension' }) {
+  return (
+    <div className="text-center py-4 mb-4 border-b border-slate-800">
+      <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">{label}</div>
+      <div className="font-mono text-4xl font-bold text-amber-400">
+        {fmt(monthly)}<span className="text-lg text-slate-400 font-normal">/mo</span>
+      </div>
+      <div className="text-sm text-slate-400 mt-1">{fmt(yearly)}/yr</div>
+    </div>
+  );
+}
+
+function HeadlineSplit({ beforeMonthly, afterMonthly }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 text-center py-4 mb-4 border-b border-slate-800">
+      <div>
+        <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Before Age 62</div>
+        <div className="font-mono text-2xl sm:text-3xl font-bold text-amber-400">
+          {fmt(beforeMonthly)}<span className="text-sm text-slate-400 font-normal">/mo</span>
+        </div>
+      </div>
+      <div>
+        <div className="text-xs text-slate-400 uppercase tracking-wide mb-1">Age 62 and After</div>
+        <div className="font-mono text-2xl sm:text-3xl font-bold text-amber-400">
+          {fmt(afterMonthly)}<span className="text-sm text-slate-400 font-normal">/mo</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TradeoffSummary({ beforeMonthly, afterMonthly, netCash, periodLabel }) {
   const diff = beforeMonthly - afterMonthly;
   return (
@@ -505,8 +536,7 @@ export default function PensionCalculatorWithBoundary() {
 
 function PensionCalculator() {
   const [tier, setTier] = useState('tier2');
-  const { isPremium: _ip, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
-  const isPremium = true; // TEMP: personal testing only — revert before real release
+  const { isPremium, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
   const [showPaywall, setShowPaywall] = useState(false);
 
   /* ---------------- Tier 2 state ---------------- */
@@ -546,7 +576,9 @@ function PensionCalculator() {
   const [t3Plan, setT3Plan] = useState('revised');
   const [t3RetType, setT3RetType] = useState('normal');
   const [t3Years, setT3Years] = useState('20');
-  const [t3FAS, setT3FAS] = useState('125000');
+  const [t3Year1, setT3Year1] = useState('125000');
+  const [t3Year2, setT3Year2] = useState('125000');
+  const [t3Year3, setT3Year3] = useState('125000');
   const [t3SS62, setT3SS62] = useState('0');
   const [t3SSDI, setT3SSDI] = useState('0');
   const [t3ADRHasSSDI, setT3ADRHasSSDI] = useState(false);
@@ -576,6 +608,7 @@ function PensionCalculator() {
   /* ---------------- Accuracy check against real statement ---------------- */
   const [statementText, setStatementText] = useState('');
   const [extracted, setExtracted] = useState(null);
+  const [appliedCount, setAppliedCount] = useState(0);
   const [officialAnnual, setOfficialAnnual] = useState('0');
   const [officialMonthly, setOfficialMonthly] = useState('0');
   const [fileError, setFileError] = useState('');
@@ -624,7 +657,9 @@ function PensionCalculator() {
       if (saved.t3Plan !== undefined) setT3Plan(saved.t3Plan);
       if (saved.t3RetType !== undefined) setT3RetType(saved.t3RetType);
       if (saved.t3Years !== undefined) setT3Years(saved.t3Years);
-      if (saved.t3FAS !== undefined) setT3FAS(saved.t3FAS);
+      if (saved.t3Year1 !== undefined) setT3Year1(saved.t3Year1);
+      if (saved.t3Year2 !== undefined) setT3Year2(saved.t3Year2);
+      if (saved.t3Year3 !== undefined) setT3Year3(saved.t3Year3);
       if (saved.t3SS62 !== undefined) setT3SS62(saved.t3SS62);
       if (saved.t3SSDI !== undefined) setT3SSDI(saved.t3SSDI);
       if (saved.t3ADRHasSSDI !== undefined) setT3ADRHasSSDI(saved.t3ADRHasSSDI);
@@ -663,12 +698,12 @@ function PensionCalculator() {
   useEffect(() => {
     if (!hasRestored.current) return; // don't overwrite saved data with defaults before restore runs
     try {
-      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3FAS, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly }));
+      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly }));
     } catch (e) {
       // Storage full or unavailable — inputs just won't persist this session.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3FAS, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly]);
+  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, statementText, officialAnnual, officialMonthly]);
 
   function resetAll() {
     setTier('tier2');
@@ -703,7 +738,9 @@ function PensionCalculator() {
     setT3Plan('revised');
     setT3RetType('normal');
     setT3Years('20');
-    setT3FAS('125000');
+    setT3Year1('125000');
+    setT3Year2('125000');
+    setT3Year3('125000');
     setT3SS62('0');
     setT3SSDI('0');
     setT3ADRHasSSDI(false);
@@ -838,7 +875,7 @@ function PensionCalculator() {
   /* ---------------- Tier 3 computation ---------------- */
   const t3 = useMemo(() => {
     const years = num(t3Years);
-    const fas = num(t3FAS);
+    const fas = (num(t3Year1) + num(t3Year2) + num(t3Year3)) / 3;
     const ss62Annual = num(t3SS62) * 12 * 0.5;
     const ssdiAnnual = num(t3SSDI) * 12 * 0.5;
 
@@ -894,7 +931,7 @@ function PensionCalculator() {
       totalBeforeAnnual: beforeOffset + vsfAnnual,
       totalAfterAnnual: afterOffsetAnnual + vsfAnnual,
     };
-  }, [t3Years, t3FAS, t3SS62, t3SSDI, t3RetType, t3Plan, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement]);
+  }, [t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3RetType, t3Plan, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement]);
 
   /* ---------------- Deferred comp (shared) ---------------- */
   const defCompAnnual = useMemo(() => {
@@ -1051,13 +1088,27 @@ function PensionCalculator() {
 
   function handleScan() {
     if (!statementText.trim()) return;
+    setAppliedCount(0);
     setExtracted(extractFigures(statementText));
+  }
+
+  function applyAllExtracted() {
+    if (!extracted) return;
+    const keys = ['fas', 'years', 'required', 'annual', 'monthly', 'longevity'];
+    let count = 0;
+    keys.forEach((k) => {
+      if (extracted[k]) {
+        applyExtracted(k);
+        count += 1;
+      }
+    });
+    setAppliedCount(count);
   }
 
   function applyExtracted(key) {
     if (!extracted || !extracted[key]) return;
     const val = extracted[key].value;
-    if (key === 'fas') tier === 'tier2' ? setT2FAS(val) : setT3FAS(val);
+    if (key === 'fas') { if (tier === 'tier2') setT2FAS(val); else { setT3Year1(val); setT3Year2(val); setT3Year3(val); } }
     if (key === 'years') tier === 'tier2' ? setT2Years(val) : setT3Years(val);
     if (key === 'required') tier === 'tier2' ? setT2RequiredAmount(val) : setT3RequiredAmount(val);
     if (key === 'annual') setOfficialAnnual(val);
@@ -1236,7 +1287,11 @@ function PensionCalculator() {
                   label="Final Average Salary (FAS)"
                   value={t2FAS}
                   onChange={setT2FAS}
-                  hint="Base salary, overtime, night differential, holiday pay, worked vacation, and allowable longevity."
+                  hint={
+                    t2.showPendingLaw
+                      ? "Base salary, overtime, night differential, holiday pay, worked vacation, and allowable longevity. Only checking the pending-law preview below? This can stay at 0 — it won't stop that box from working."
+                      : "Base salary, overtime, night differential, holiday pay, worked vacation, and allowable longevity."
+                  }
                 />
                 {t2.usesEarningsAfter20 && t2.years > 20 && (
                   <NumField
@@ -1253,7 +1308,9 @@ function PensionCalculator() {
                   <p className="text-xs text-sky-400 bg-sky-950/20 border border-sky-800/50 rounded-sm px-3 py-2 mb-3 leading-relaxed">
                     Optional — only matters if NY Senate Bill S7808A is signed (see the pending-legislation preview
                     in your results below). Enter your 3 highest consecutive years of pensionable earnings; leave
-                    at $0 to skip.
+                    at $0 to skip. <strong className="text-sky-300">This doesn't replace FAS above</strong> — they're
+                    independent: FAS drives your real current-law pension, these three fields only drive the
+                    separate "if signed" preview. Fill in either one, both, or neither.
                   </p>
                   <span className="block text-[13px] font-medium text-slate-300 mb-2">
                     Your best 3 consecutive years of pensionable earnings
@@ -1368,8 +1425,10 @@ function PensionCalculator() {
 
               <div className="border-t border-slate-800 pt-3">
                 <p className="text-xs text-amber-400 bg-amber-950/30 border border-amber-800/50 rounded-sm px-3 py-2 mb-3 leading-relaxed">
-                  These are part of the official Service Retirement formula, not optional extras. Leaving them at $0
-                  understates your pension. Your figures are on your PPF benefit estimate or webCOPS statement.
+                  These are part of the official Service Retirement formula, not optional extras — but this
+                  calculator has no way to know your personal contribution history, so it can't calculate this for
+                  you automatically. Leaving them at $0 understates your pension. Enter your figures below from your
+                  PPF benefit estimate or webCOPS statement to include them.
                 </p>
 
                 <span className="block text-[13px] font-medium text-slate-300 mb-2">ASF excess less shortage</span>
@@ -1617,12 +1676,6 @@ function PensionCalculator() {
                 onChange={setT3Years}
                 hint="Service Retirement needs 20+ years, unreduced, under Chapter 55 of the Laws of 2025."
               />
-              <NumField
-                label="Final Average Salary (FAS)"
-                value={t3FAS}
-                onChange={setT3FAS}
-                hint="Highest 3 consecutive calendar years / 36 months, with a 10% year-over-year cap."
-              />
               {(t3RetType === 'vested' || t3RetType === 'normal') && (
                 <NumField
                   label="Estimated Social Security benefit at 62 (monthly)"
@@ -1637,6 +1690,25 @@ function PensionCalculator() {
               {t3RetType === 'adr' && t3Plan !== 'enhanced' && (
                 <NumField label="Monthly SSDI benefit (if applicable)" value={t3SSDI} onChange={setT3SSDI} hint="Only reduces the benefit if you receive SSDI for the same disability." />
               )}
+            </div>
+
+            <div className="border-t border-slate-800 pt-3 mt-3">
+              <span className="block text-[13px] font-medium text-slate-300 mb-1">
+                Final Average Salary (FAS) — your highest 3 consecutive years
+              </span>
+              <p className="text-xs text-slate-400 mb-2 leading-snug">
+                Enter each year's pensionable earnings and this calculator averages them for you. A 10%
+                year-over-year cap applies to any single year under the official rule, which isn't modeled here —
+                use figures already capped if you know one year jumped sharply.
+              </p>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <NumField label="Year 1" value={t3Year1} onChange={setT3Year1} />
+                <NumField label="Year 2" value={t3Year2} onChange={setT3Year2} />
+                <NumField label="Year 3" value={t3Year3} onChange={setT3Year3} />
+              </div>
+              <p className="text-xs text-slate-400 mt-2">
+                Average (your FAS): <span className="font-mono text-slate-200">{fmt(t3.fas)}</span>/yr
+              </p>
             </div>
 
             {t3RetType === 'adr' && t3Plan !== 'enhanced' && (
@@ -1917,6 +1989,7 @@ function PensionCalculator() {
 
           {tier === 'tier2' ? (
             <div className="border border-amber-700/40 bg-slate-900 rounded-sm p-5">
+              <HeadlineNumber monthly={t2.totalAnnual / 12} yearly={t2.totalAnnual} />
               <CompositionBar
                 segments={[
                   { label: 'Core pension', value: t2.coreAnnual + t2.enhancedAnnual, color: '#f59e0b' },
@@ -2038,6 +2111,11 @@ function PensionCalculator() {
             </div>
           ) : (
             <div className="border border-amber-700/40 bg-slate-900 rounded-sm p-5">
+              {t3.hasAgeSplit ? (
+                <HeadlineSplit beforeMonthly={t3.totalBeforeAnnual / 12} afterMonthly={t3.totalAfterAnnual / 12} />
+              ) : (
+                <HeadlineNumber monthly={t3.totalAfterAnnual / 12} yearly={t3.totalAfterAnnual} />
+              )}
               <CompositionBar
                 segments={[
                   { label: 'Core pension (after any offset)', value: t3.hasAgeSplit ? t3.beforeOffset : t3.afterOffsetAnnual, color: '#f59e0b' },
@@ -2273,16 +2351,34 @@ function PensionCalculator() {
 
             {extracted && (
               <div className="mt-4 border-t border-slate-800 pt-3">
-                <span className="block text-[13px] font-medium text-slate-300 mb-2">Found in your statement — tap Use to fill it in</span>
-                <ExtractedRow label="Final Average Salary" match={extracted.fas} onUse={() => applyExtracted('fas')} />
-                <ExtractedRow label="Years of service" match={extracted.years} onUse={() => applyExtracted('years')} />
-                <ExtractedRow label="Required amount / contributions" match={extracted.required} onUse={() => applyExtracted('required')} />
-                <ExtractedRow label="Annual pension" match={extracted.annual} onUse={() => applyExtracted('annual')} />
-                <ExtractedRow label="Monthly pension" match={extracted.monthly} onUse={() => applyExtracted('monthly')} />
-                <ExtractedRow label="Longevity Enhancement" match={extracted.longevity} onUse={() => applyExtracted('longevity')} />
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <span className="text-[13px] font-medium text-slate-300">Found in your statement</span>
+                  <button
+                    type="button"
+                    onClick={applyAllExtracted}
+                    className="shrink-0 text-xs bg-amber-500 text-slate-950 font-semibold rounded-sm px-3 py-2"
+                  >
+                    Apply All to Calculator
+                  </button>
+                </div>
+                {appliedCount > 0 && (
+                  <p className="text-xs text-emerald-400 bg-emerald-950/30 border border-emerald-800/50 rounded-sm px-3 py-2 mb-3 leading-relaxed">
+                    Applied {appliedCount} figure{appliedCount === 1 ? '' : 's'} to your calculator.{' '}
+                    {extracted.annual || extracted.monthly
+                      ? "Scroll down to the Comparison box below to see how close this calculator lands to your statement."
+                      : "Scroll up to your Tier's results to see the updated pension estimate — no official pension amount was found to compare against, so no Comparison box will appear here."}
+                  </p>
+                )}
+                <ExtractedRow label="Final Average Salary" match={extracted.fas} onUse={() => { applyExtracted('fas'); setAppliedCount(1); }} />
+                <ExtractedRow label="Years of service" match={extracted.years} onUse={() => { applyExtracted('years'); setAppliedCount(1); }} />
+                <ExtractedRow label="Required amount / contributions" match={extracted.required} onUse={() => { applyExtracted('required'); setAppliedCount(1); }} />
+                <ExtractedRow label="Annual pension" match={extracted.annual} onUse={() => { applyExtracted('annual'); setAppliedCount(1); }} />
+                <ExtractedRow label="Monthly pension" match={extracted.monthly} onUse={() => { applyExtracted('monthly'); setAppliedCount(1); }} />
+                <ExtractedRow label="Longevity Enhancement" match={extracted.longevity} onUse={() => { applyExtracted('longevity'); setAppliedCount(1); }} />
                 <p className="text-xs text-slate-400 mt-2 leading-snug">
                   This is pattern-matching, not real comprehension — always check the quoted snippet actually says
-                  what you think before using it.
+                  what you think before using it. "Apply All" fills in everything found at once; use the individual
+                  Use buttons instead if you only trust some of them.
                 </p>
               </div>
             )}
