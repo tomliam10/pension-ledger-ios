@@ -536,7 +536,8 @@ export default function PensionCalculatorWithBoundary() {
 
 function PensionCalculator() {
   const [tier, setTier] = useState('tier2');
-  const { isPremium, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
+  const { isPremium: _ip, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
+  const isPremium = true; // TEMP: personal testing only — revert before real release
   const [showPaywall, setShowPaywall] = useState(false);
 
   /* ---------------- Tier 2 state ---------------- */
