@@ -65,17 +65,25 @@ function federalTaxOnTaxableIncome(taxableIncome, filingStatus) {
   return tax;
 }
 
+// 2026 Child Tax Credit, per IRS Revenue Procedure 2025-32 / OBBBA. This simplified
+// model applies the full credit regardless of income — the real credit phases out at
+// higher incomes ($200k single/HOH, $400k MFJ modified AGI), not modeled here.
+const CHILD_TAX_CREDIT_2026 = 2200;
+
 // Estimates federal tax attributable specifically to the pension, by comparing tax
 // with-and-without it — this correctly reflects that the pension is taxed at
 // whatever marginal rate it lands on once stacked on top of other income, rather
-// than assuming it's taxed in isolation from $0.
-function estimatePensionFederalTax(pensionAnnual, otherAnnual, filingStatus) {
+// than assuming it's taxed in isolation from $0. The Child Tax Credit is applied
+// once, directly against the pension's isolated share.
+function estimatePensionFederalTax(pensionAnnual, otherAnnual, filingStatus, numDependents = 0) {
   const stdDeduction = STANDARD_DEDUCTION_2026[filingStatus] || STANDARD_DEDUCTION_2026.single;
   const taxableWithPension = Math.max(0, pensionAnnual + otherAnnual - stdDeduction);
   const taxableOtherOnly = Math.max(0, otherAnnual - stdDeduction);
   const taxWithPension = federalTaxOnTaxableIncome(taxableWithPension, filingStatus);
   const taxOtherOnly = federalTaxOnTaxableIncome(taxableOtherOnly, filingStatus);
-  return Math.max(0, taxWithPension - taxOtherOnly);
+  const grossPensionTax = Math.max(0, taxWithPension - taxOtherOnly);
+  const ctc = Math.max(0, numDependents) * CHILD_TAX_CREDIT_2026;
+  return Math.max(0, grossPensionTax - ctc);
 }
 
 /* ---------------------------------------------------------------
@@ -448,8 +456,8 @@ function HeadlineSplit({ beforeMonthly, afterMonthly, note }) {
   );
 }
 
-function NetPayEstimate({ label, grossAnnual, filingStatus, otherIncomeAnnual }) {
-  const tax = estimatePensionFederalTax(grossAnnual, otherIncomeAnnual, filingStatus);
+function NetPayEstimate({ label, grossAnnual, filingStatus, otherIncomeAnnual, numDependents }) {
+  const tax = estimatePensionFederalTax(grossAnnual, otherIncomeAnnual, filingStatus, numDependents);
   const net = Math.max(0, grossAnnual - tax);
   return (
     <div className="border border-slate-700 bg-slate-950/60 rounded-sm px-3 py-3">
@@ -596,8 +604,7 @@ export default function PensionCalculatorWithBoundary() {
 
 function PensionCalculator() {
   const [tier, setTier] = useState('tier2');
-  const { isPremium: _ip, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
-  const isPremium = true; // TEMP: personal testing only — revert before real release
+  const { isPremium, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
   const [showPaywall, setShowPaywall] = useState(false);
 
   /* ---------------- Tier 2 state ---------------- */
@@ -664,6 +671,8 @@ function PensionCalculator() {
   const [showNetPay, setShowNetPay] = useState(false);
   const [taxFilingStatus, setTaxFilingStatus] = useState('single');
   const [otherTaxableIncome, setOtherTaxableIncome] = useState('0');
+  const [spouseTaxableIncome, setSpouseTaxableIncome] = useState('0');
+  const [numDependents, setNumDependents] = useState('0');
   const [defCompBalance, setDefCompBalance] = useState('0');
   const [defCompMode, setDefCompMode] = useState('rate');
   const [defCompRate, setDefCompRate] = useState('4');
@@ -745,6 +754,8 @@ function PensionCalculator() {
       if (saved.showNetPay !== undefined) setShowNetPay(saved.showNetPay);
       if (saved.taxFilingStatus !== undefined) setTaxFilingStatus(saved.taxFilingStatus);
       if (saved.otherTaxableIncome !== undefined) setOtherTaxableIncome(saved.otherTaxableIncome);
+      if (saved.spouseTaxableIncome !== undefined) setSpouseTaxableIncome(saved.spouseTaxableIncome);
+      if (saved.numDependents !== undefined) setNumDependents(saved.numDependents);
       if (saved.defCompBalance !== undefined) setDefCompBalance(saved.defCompBalance);
       if (saved.defCompMode !== undefined) setDefCompMode(saved.defCompMode);
       if (saved.defCompRate !== undefined) setDefCompRate(saved.defCompRate);
@@ -765,12 +776,12 @@ function PensionCalculator() {
   useEffect(() => {
     if (!hasRestored.current) return; // don't overwrite saved data with defaults before restore runs
     try {
-      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, statementText, officialAnnual, officialMonthly }));
+      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, statementText, officialAnnual, officialMonthly }));
     } catch (e) {
       // Storage full or unavailable — inputs just won't persist this session.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, statementText, officialAnnual, officialMonthly]);
+  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, statementText, officialAnnual, officialMonthly]);
 
   function resetAll() {
     setTier('tier2');
@@ -829,6 +840,8 @@ function PensionCalculator() {
     setShowNetPay(false);
     setTaxFilingStatus('single');
     setOtherTaxableIncome('0');
+    setSpouseTaxableIncome('0');
+    setNumDependents('0');
     setDefCompBalance('0');
     setDefCompMode('rate');
     setDefCompRate('4');
@@ -1520,7 +1533,7 @@ function PensionCalculator() {
                       prefix=""
                       value={t2Factor}
                       onChange={setT2Factor}
-                      hint="PPF's published example uses $81.78/yr per $1,000 for a 45-year-old retiree. This factor rises with age at retirement — ask PPF for yours."
+                      hint={'Look for "Cost Per Thousand" on your PPF statement — that\'s this exact figure. PPF\'s published example is $81.78/yr per $1,000 for a 45-year-old retiree, but yours will differ; one real member statement showed $89.11.'}
                     />
                   </div>
                 )}
@@ -1580,15 +1593,15 @@ function PensionCalculator() {
                 <>
                   <div className="grid sm:grid-cols-2 gap-4 mb-4">
                     <NumField
-                      label="Required amount in your ASF account"
+                      label="Your ASF account balance"
                       value={t2RequiredAmount}
                       onChange={setT2RequiredAmount}
-                      hint="From your PPF benefit estimate or webCOPS statement."
+                      hint={'Use your statement\'s "Ending Balance" — NOT the smaller "Required Amount" line. Those are two different figures; using "Required Amount" here would show a maximum withdrawal far smaller than what\'s actually available to you.'}
                     />
                     <div>
                       <span className="block text-[13px] font-medium text-slate-300 mb-1">Maximum you can withdraw</span>
                       <div className="font-mono text-amber-400 text-lg">{fmt(t2Withdrawal ? t2Withdrawal.max : 0)}</div>
-                      <span className="text-xs text-slate-400">90% of your required amount</span>
+                      <span className="text-xs text-slate-400">90% of your account balance</span>
                     </div>
                   </div>
 
@@ -1670,7 +1683,7 @@ function PensionCalculator() {
                       prefix=""
                       value={t2Factor}
                       onChange={setT2Factor}
-                      hint="Shared with the excess/shortage factor above — PPF's example is $81.78/yr per $1,000 for a 45-year-old retiree."
+                      hint={'Shared with the excess/shortage factor above — look for "Cost Per Thousand" on your PPF statement for your real figure.'}
                     />
                   </div>
 
@@ -1972,7 +1985,7 @@ function PensionCalculator() {
                     prefix=""
                     value={t3Factor}
                     onChange={setT3Factor}
-                    hint="Set by PPF's Office of the Actuary using mortality tables and 30-year Treasury rates at your retirement — ask PPF for your exact figure."
+                    hint={'Look for "Cost Per Thousand" on your PPF statement — set by PPF\'s Office of the Actuary using mortality tables and 30-year Treasury rates at your retirement.'}
                   />
                 </div>
 
@@ -2077,10 +2090,27 @@ function PensionCalculator() {
                   />
                 </div>
                 <NumField
+                  label="Number of dependent children"
+                  prefix=""
+                  value={numDependents}
+                  onChange={setNumDependents}
+                  hint={`Applies the 2026 Child Tax Credit ($${CHILD_TAX_CREDIT_2026.toLocaleString()}/child) directly against the tax below. Available regardless of filing status. Real-world phase-outs at higher income aren't modeled.`}
+                />
+              </div>
+              <div className="grid sm:grid-cols-2 gap-4 mb-3">
+                {taxFilingStatus === 'mfj' && (
+                  <NumField
+                    label="Spouse's annual taxable income"
+                    value={spouseTaxableIncome}
+                    onChange={setSpouseTaxableIncome}
+                    hint="Combined with your pension under joint filing — this is what actually changes the outcome under Married Filing Jointly, since your two incomes stack together onto one return."
+                  />
+                )}
+                <NumField
                   label="Other annual taxable income (optional)"
                   value={otherTaxableIncome}
                   onChange={setOtherTaxableIncome}
-                  hint="Deferred Comp withdrawals, a second job, Social Security's taxable portion, etc. — stacking this on top gets your pension's real marginal rate right, since it isn't taxed starting from $0 if you have other income."
+                  hint="Your own Deferred Comp withdrawals, a second job, Social Security's taxable portion, etc. — separate from your spouse's income above."
                 />
               </div>
 
@@ -2088,7 +2118,8 @@ function PensionCalculator() {
                 <NetPayEstimate
                   grossAnnual={t2.totalAnnual}
                   filingStatus={taxFilingStatus}
-                  otherIncomeAnnual={num(otherTaxableIncome)}
+                  otherIncomeAnnual={num(otherTaxableIncome) + (taxFilingStatus === 'mfj' ? num(spouseTaxableIncome) : 0)}
+                  numDependents={num(numDependents)}
                 />
               ) : t3.hasAgeSplit ? (
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -2096,28 +2127,32 @@ function PensionCalculator() {
                     label="Before age 62"
                     grossAnnual={t3.totalBeforeAnnual}
                     filingStatus={taxFilingStatus}
-                    otherIncomeAnnual={num(otherTaxableIncome)}
+                    otherIncomeAnnual={num(otherTaxableIncome) + (taxFilingStatus === 'mfj' ? num(spouseTaxableIncome) : 0)}
+                    numDependents={num(numDependents)}
                   />
                   <NetPayEstimate
                     label="Age 62 and after"
                     grossAnnual={t3.totalAfterAnnual}
                     filingStatus={taxFilingStatus}
-                    otherIncomeAnnual={num(otherTaxableIncome)}
+                    otherIncomeAnnual={num(otherTaxableIncome) + (taxFilingStatus === 'mfj' ? num(spouseTaxableIncome) : 0)}
+                    numDependents={num(numDependents)}
                   />
                 </div>
               ) : (
                 <NetPayEstimate
                   grossAnnual={t3.totalAfterAnnual}
                   filingStatus={taxFilingStatus}
-                  otherIncomeAnnual={num(otherTaxableIncome)}
+                  otherIncomeAnnual={num(otherTaxableIncome) + (taxFilingStatus === 'mfj' ? num(spouseTaxableIncome) : 0)}
+                  numDependents={num(numDependents)}
                 />
               )}
 
               <p className="text-xs text-slate-400 mt-3 leading-relaxed">
                 Uses 2026 federal brackets and the standard deduction only — it doesn't model itemized deductions,
-                tax credits, the senior deduction, or how withholding elections affect your paycheck-to-paycheck
-                amount versus what you actually owe at filing. Brackets and deductions change most years. This is a
-                planning estimate, not tax advice — a tax professional can give you a figure to actually rely on.
+                the Child Tax Credit's income phase-out, the senior deduction, or how withholding elections affect
+                your paycheck-to-paycheck amount versus what you actually owe at filing. Brackets and deductions
+                change most years. This is a planning estimate, not tax advice — a tax professional can give you a
+                figure to actually rely on.
               </p>
             </>
           )}
