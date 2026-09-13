@@ -108,7 +108,7 @@ function findFigure(text, labelAlternatives) {
 function findYears(text) {
   const patterns = [
     // "Years of Allowable Police Service: 23.0" — label then number (safer: label text is specific)
-    /(?:years[ \t]{0,2}of[ \t]{0,2}(?:allowable police|credited|uniformed)[ \t]{0,2}service|total[ \t]{0,2}service)[ \t:\u2013\-]{0,8}(\d+(?:\.\d+)?)/i,
+    /(?:years[ \t]{0,2}of[ \t]{0,2}(?:allowable police|credited|uniformed)[ \t]{0,2}service|total[ \t]{0,2}service|service[ \t]{0,2}to[ \t]{0,2}date)[ \t:\u2013\-]{0,8}(\d+(?:\.\d+)?)/i,
     // "23.0 years of Allowable Police Service" — number then label, adjacent words only
     // (space/tab separators only — never spans a newline, which prevents accidentally
     // matching an unrelated number like a date fragment sitting on the line above)
@@ -129,8 +129,13 @@ function findYears(text) {
 
 function extractFigures(text) {
   const clean = (text || '').replace(/\r/g, '');
-  return {
-    fas: findFigure(clean, ['final average salary', 'FAS']),
+  const result = {
+    // "Final Year Salary" is a real field on PPF's standard Annual Pension Statement —
+    // for members appointed on/after 7/1/2000, FAS legally IS the final 12 months of
+    // pensionable earnings, so this is a close, honest stand-in when the statement
+    // doesn't spell out "Final Average Salary" or "FAS" directly. The quoted snippet
+    // always shows exactly which label matched, so the person can judge for themselves.
+    fas: findFigure(clean, ['final average salary', 'FAS', 'final year salary']),
     years: findYears(clean),
     required: findFigure(clean, ['required amount', 'accumulated contributions', 'total member contributions', 'total contributions', 'contribution account balance']),
     annual: findFigure(clean, [
@@ -148,6 +153,24 @@ function extractFigures(text) {
       'rank[- ]based enhancement',
     ]),
   };
+
+  // PPF's standard Annual Pension Statement lists Monthly and Annual Benefit as two
+  // numbers on one line ("Vested Retirement Without Final Withdrawal: $X $Y") rather
+  // than either figure sitting right next to its own label — the generic patterns
+  // above can't reliably parse a two-column table, so this catches that specific,
+  // very common real-world layout as a fallback when they come up empty.
+  if (!result.monthly || !result.annual) {
+    const m = clean.match(/vested retirement without final withdrawal[\s:]{0,10}\$?\s{0,3}([\d,]+(?:\.\d+)?)\s+\$?\s{0,3}([\d,]+(?:\.\d+)?)/i);
+    if (m) {
+      const snippetStart = Math.max(0, m.index - 5);
+      const snippetEnd = Math.min(clean.length, m.index + m[0].length + 5);
+      const snippet = clean.slice(snippetStart, snippetEnd).replace(/\s+/g, ' ').trim();
+      if (!result.monthly) result.monthly = { value: m[1].replace(/,/g, ''), snippet };
+      if (!result.annual) result.annual = { value: m[2].replace(/,/g, ''), snippet };
+    }
+  }
+
+  return result;
 }
 
 /* ---------------------------------------------------------------
@@ -604,8 +627,7 @@ export default function PensionCalculatorWithBoundary() {
 
 function PensionCalculator() {
   const [tier, setTier] = useState('tier2');
-  const { isPremium: _ip, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
-  const isPremium = true; // TEMP: personal testing only — revert before real release
+  const { isPremium, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
   const [showPaywall, setShowPaywall] = useState(false);
 
   /* ---------------- Tier 2 state ---------------- */
@@ -628,8 +650,8 @@ function PensionCalculator() {
   const [t2Uses5050, setT2Uses5050] = useState(false);
   const [t2EnhancedMode, setT2EnhancedMode] = useState('lumpsum'); // 'lumpsum' | 'annual'
   const [t2EnhancedAnnual, setT2EnhancedAnnual] = useState('0');
-  const [t2ExcessBalance, setT2ExcessBalance] = useState('0');
-  const [t2ShortageBalance, setT2ShortageBalance] = useState('0');
+  const [t2ASFBalance, setT2ASFBalance] = useState('0');
+  const [t2ASFRequired, setT2ASFRequired] = useState('0');
   const [t2Factor, setT2Factor] = useState('82');
   const [t2ITHPAnnuity, setT2ITHPAnnuity] = useState('0');
 
@@ -714,8 +736,8 @@ function PensionCalculator() {
       if (saved.t2Uses5050 !== undefined) setT2Uses5050(saved.t2Uses5050);
       if (saved.t2EnhancedMode !== undefined) setT2EnhancedMode(saved.t2EnhancedMode);
       if (saved.t2EnhancedAnnual !== undefined) setT2EnhancedAnnual(saved.t2EnhancedAnnual);
-      if (saved.t2ExcessBalance !== undefined) setT2ExcessBalance(saved.t2ExcessBalance);
-      if (saved.t2ShortageBalance !== undefined) setT2ShortageBalance(saved.t2ShortageBalance);
+      if (saved.t2ASFBalance !== undefined) setT2ASFBalance(saved.t2ASFBalance);
+      if (saved.t2ASFRequired !== undefined) setT2ASFRequired(saved.t2ASFRequired);
       if (saved.t2Factor !== undefined) setT2Factor(saved.t2Factor);
       if (saved.t2ITHPAnnuity !== undefined) setT2ITHPAnnuity(saved.t2ITHPAnnuity);
       if (saved.t2Best3Year1 !== undefined) setT2Best3Year1(saved.t2Best3Year1);
@@ -777,12 +799,12 @@ function PensionCalculator() {
   useEffect(() => {
     if (!hasRestored.current) return; // don't overwrite saved data with defaults before restore runs
     try {
-      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, statementText, officialAnnual, officialMonthly }));
+      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ASFBalance, t2ASFRequired, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, statementText, officialAnnual, officialMonthly }));
     } catch (e) {
       // Storage full or unavailable — inputs just won't persist this session.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, statementText, officialAnnual, officialMonthly]);
+  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ASFBalance, t2ASFRequired, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, statementText, officialAnnual, officialMonthly]);
 
   function resetAll() {
     setTier('tier2');
@@ -800,8 +822,8 @@ function PensionCalculator() {
     setT2Uses5050(false);
     setT2EnhancedMode('lumpsum');
     setT2EnhancedAnnual('0');
-    setT2ExcessBalance('0');
-    setT2ShortageBalance('0');
+    setT2ASFBalance('0');
+    setT2ASFRequired('0');
     setT2Factor('82');
     setT2ITHPAnnuity('0');
     setT2Best3Year1('0');
@@ -901,15 +923,17 @@ function PensionCalculator() {
     const coreAnnual = base + (isService || isVested ? nonUniformBenefit : 0);
 
     // ASF excess less shortage — a mandatory component of the SPD's Service Retirement
-    // formula, not an optional add-on. Always counted.
+    // formula, not an optional add-on. Always counted. Computed automatically from the
+    // two raw numbers printed on a real statement (Ending Balance and Required Amount),
+    // rather than asking the person to subtract them by hand.
     let enhancedAnnual = 0;
+    let asfDiff = 0;
     if (t2EnhancedMode === 'annual') {
       enhancedAnnual = num(t2EnhancedAnnual);
     } else {
-      const excess = num(t2ExcessBalance);
-      const shortage = num(t2ShortageBalance);
+      asfDiff = num(t2ASFBalance) - num(t2ASFRequired);
       const factor = num(t2Factor);
-      enhancedAnnual = ((excess - shortage) / 1000) * factor;
+      enhancedAnnual = (asfDiff / 1000) * factor;
     }
 
     // Annuity value of City ITHP contributions after the 20th anniversary — listed
@@ -946,11 +970,11 @@ function PensionCalculator() {
       years, fas, base, nonUniformBenefit, coreAnnual, enhancedAnnual, ithpAnnual, longevityAnnual,
       vsfEligible, vsfAnnual, pensionAnnual, totalAnnual, under20Warning, unrealisticYears,
       isService, isVested, isODR, isADR, usesEarningsAfter20,
-      showPendingLaw, pendingFAS, pendingTotalAnnual, pendingMakesADifference, best3YearAvg,
+      showPendingLaw, pendingFAS, pendingTotalAnnual, pendingMakesADifference, best3YearAvg, asfDiff,
     };
   }, [
     t2Years, t2FAS, t2EarningsAfter20, t2RetType, t2ShowNonUni, t2NonUniYears, t2NonUniAvg,
-    t2EnhancedMode, t2EnhancedAnnual, t2ExcessBalance, t2ShortageBalance, t2Factor, t2ITHPAnnuity,
+    t2EnhancedMode, t2EnhancedAnnual, t2ASFBalance, t2ASFRequired, t2Factor, t2ITHPAnnuity,
     t2LongevityEnhancement, t2AppointDate, t2Best3Year1, t2Best3Year2, t2Best3Year3,
   ]);
 
@@ -1526,17 +1550,36 @@ function PensionCalculator() {
                 />
 
                 {t2EnhancedMode === 'lumpsum' && (
-                  <div className="grid sm:grid-cols-3 gap-4 mt-3">
-                    <NumField label="ASF balance in excess of required amount" value={t2ExcessBalance} onChange={setT2ExcessBalance} />
-                    <NumField label="ASF shortage (if any)" value={t2ShortageBalance} onChange={setT2ShortageBalance} />
-                    <NumField
-                      label="Actuarial factor ($ per $1,000)"
-                      prefix=""
-                      value={t2Factor}
-                      onChange={setT2Factor}
-                      hint={'Look for "Cost Per Thousand" on your PPF statement — that\'s this exact figure. PPF\'s published example is $81.78/yr per $1,000 for a 45-year-old retiree, but yours will differ; one real member statement showed $89.11.'}
-                    />
-                  </div>
+                  <>
+                    <div className="grid sm:grid-cols-3 gap-4 mt-3">
+                      <NumField
+                        label="Your ASF account balance"
+                        value={t2ASFBalance}
+                        onChange={setT2ASFBalance}
+                        hint={'Your statement\'s "Ending Balance."'}
+                      />
+                      <NumField
+                        label="Required amount"
+                        value={t2ASFRequired}
+                        onChange={setT2ASFRequired}
+                        hint={'Your statement\'s "Required Amount" line — a different, smaller figure than your balance.'}
+                      />
+                      <NumField
+                        label="Actuarial factor ($ per $1,000)"
+                        prefix=""
+                        value={t2Factor}
+                        onChange={setT2Factor}
+                        hint={'Look for "Cost Per Thousand" on your PPF statement — that\'s this exact figure. PPF\'s published example is $81.78/yr per $1,000 for a 45-year-old retiree, but yours will differ; one real member statement showed $89.11.'}
+                      />
+                    </div>
+                    <p className="text-xs text-slate-400 mt-2">
+                      {t2.asfDiff >= 0 ? (
+                        <>Excess: <span className="font-mono text-slate-200">{fmt(t2.asfDiff)}</span> — this calculator did the subtraction for you (balance minus required amount).</>
+                      ) : (
+                        <>Shortage: <span className="font-mono text-slate-200">{fmt(Math.abs(t2.asfDiff))}</span> — your balance is below the required amount, which reduces your pension.</>
+                      )}
+                    </p>
+                  </>
                 )}
                 {t2EnhancedMode === 'annual' && (
                   <div className="mt-3 max-w-xs">
