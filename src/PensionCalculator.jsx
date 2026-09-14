@@ -492,6 +492,42 @@ function NetPayEstimate({ label, grossAnnual, filingStatus, otherIncomeAnnual, n
   );
 }
 
+function PreFinalizationEstimate({ fullMonthly, fullAnnual, withholdPct }) {
+  const pct = Math.min(100, Math.max(0, withholdPct));
+  const preMonthly = fullMonthly * (1 - pct / 100);
+  const preAnnual = fullAnnual * (1 - pct / 100);
+  return (
+    <div className="mt-4 border border-slate-700 bg-slate-950/60 rounded-sm px-3 py-3">
+      <div className="text-xs text-slate-400 mb-2">
+        Per PPF's SPD: while your case is being finalized, you're paid your Maximum Retirement Allowance minus a
+        default 5% holdback — not your final amount yet.
+      </div>
+      <div className="grid grid-cols-2 gap-3 mb-2">
+        <div>
+          <div className="text-xs text-slate-400 mb-1">Before finalization</div>
+          <div className="font-mono text-lg text-sky-400">{fmt(preMonthly)}<span className="text-xs text-slate-400">/mo</span></div>
+          <div className="text-xs text-slate-400">{fmt(preAnnual)}/yr</div>
+        </div>
+        <div>
+          <div className="text-xs text-slate-400 mb-1">After finalization</div>
+          <div className="font-mono text-lg text-amber-400">{fmt(fullMonthly)}<span className="text-xs text-slate-400">/mo</span></div>
+          <div className="text-xs text-slate-400">{fmt(fullAnnual)}/yr</div>
+        </div>
+      </div>
+      <p className="text-xs text-amber-400 leading-relaxed">
+        Choosing a survivor payment option? PPF's SPD specifically recommends withholding <strong>more than
+        5%</strong> in that case, since an option reduces your final pension below the Maximum Retirement
+        Allowance shown here — this calculator doesn't model options, so raise the percentage below yourself if
+        that applies to you, or you may end up owing money back once finalized.
+      </p>
+      <p className="text-xs text-slate-400 leading-relaxed mt-2">
+        Once finalized, you move to full monthly payments, and any gap between the two periods is caught up in
+        your first full payment — not lost.
+      </p>
+    </div>
+  );
+}
+
 function TradeoffSummary({ beforeMonthly, afterMonthly, netCash, periodLabel }) {
   const diff = beforeMonthly - afterMonthly;
   return (
@@ -627,8 +663,7 @@ export default function PensionCalculatorWithBoundary() {
 
 function PensionCalculator() {
   const [tier, setTier] = useState('tier2');
-  const { isPremium: _ip, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
-  const isPremium = true; // TEMP: personal testing only — revert before real release
+  const { isPremium, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
   const [showPaywall, setShowPaywall] = useState(false);
 
   /* ---------------- Tier 2 state ---------------- */
@@ -697,6 +732,11 @@ function PensionCalculator() {
   const [otherTaxableIncome, setOtherTaxableIncome] = useState('0');
   const [spouseTaxableIncome, setSpouseTaxableIncome] = useState('0');
   const [numDependents, setNumDependents] = useState('0');
+  const [showPreFinalization, setShowPreFinalization] = useState(false);
+  const [preFinalizationPct, setPreFinalizationPct] = useState('5');
+  const [showBuyback, setShowBuyback] = useState(false);
+  const [buybackYears, setBuybackYears] = useState('0');
+  const [buybackComp, setBuybackComp] = useState('0');
   const [defCompBalance, setDefCompBalance] = useState('0');
   const [defCompMode, setDefCompMode] = useState('rate');
   const [defCompRate, setDefCompRate] = useState('4');
@@ -780,6 +820,11 @@ function PensionCalculator() {
       if (saved.otherTaxableIncome !== undefined) setOtherTaxableIncome(saved.otherTaxableIncome);
       if (saved.spouseTaxableIncome !== undefined) setSpouseTaxableIncome(saved.spouseTaxableIncome);
       if (saved.numDependents !== undefined) setNumDependents(saved.numDependents);
+      if (saved.showPreFinalization !== undefined) setShowPreFinalization(saved.showPreFinalization);
+      if (saved.preFinalizationPct !== undefined) setPreFinalizationPct(saved.preFinalizationPct);
+      if (saved.showBuyback !== undefined) setShowBuyback(saved.showBuyback);
+      if (saved.buybackYears !== undefined) setBuybackYears(saved.buybackYears);
+      if (saved.buybackComp !== undefined) setBuybackComp(saved.buybackComp);
       if (saved.defCompBalance !== undefined) setDefCompBalance(saved.defCompBalance);
       if (saved.defCompMode !== undefined) setDefCompMode(saved.defCompMode);
       if (saved.defCompRate !== undefined) setDefCompRate(saved.defCompRate);
@@ -800,12 +845,12 @@ function PensionCalculator() {
   useEffect(() => {
     if (!hasRestored.current) return; // don't overwrite saved data with defaults before restore runs
     try {
-      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ASFBalance, t2ASFRequired, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, statementText, officialAnnual, officialMonthly }));
+      window.localStorage.setItem(PERSIST_KEY, JSON.stringify({ tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ASFBalance, t2ASFRequired, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, showPreFinalization, preFinalizationPct, showBuyback, buybackYears, buybackComp, statementText, officialAnnual, officialMonthly }));
     } catch (e) {
       // Storage full or unavailable — inputs just won't persist this session.
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ASFBalance, t2ASFRequired, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, statementText, officialAnnual, officialMonthly]);
+  }, [tier, t2AppointDate, t2RetType, t2Years, t2FAS, t2EarningsAfter20, t2AppointAge, t2LongevityEnhancement, t2ShowNonUni, t2NonUniYears, t2NonUniAvg, t2WaivedITHP, t2Uses5050, t2EnhancedMode, t2EnhancedAnnual, t2ASFBalance, t2ASFRequired, t2Factor, t2ITHPAnnuity, t2Best3Year1, t2Best3Year2, t2Best3Year3, t2ShowWithdrawal, t2WithdrawalMode, t2RequiredAmount, t2WithdrawalAmount, t2TargetMonthly, t2Rollover, t2PenaltyExempt, t3Plan, t3RetType, t3Years, t3Year1, t3Year2, t3Year3, t3SS62, t3SSDI, t3ADRHasSSDI, t3ShowEarlyVest, t3YearsEarly, t3LongevityEnhancement, t3ShowWithdrawal, t3WithdrawalMode, t3LoanBucket, t3RequiredAmount, t3OutstandingLoan, t3WithdrawalAmount, t3TargetMonthly, t3TargetBasis, t3Factor, t3Rollover, t3PenaltyExempt, showDefComp, defCompBalance, defCompMode, defCompRate, defCompFixedMonthly, showNetPay, taxFilingStatus, otherTaxableIncome, spouseTaxableIncome, numDependents, showPreFinalization, preFinalizationPct, showBuyback, buybackYears, buybackComp, statementText, officialAnnual, officialMonthly]);
 
   function resetAll() {
     setTier('tier2');
@@ -866,6 +911,11 @@ function PensionCalculator() {
     setOtherTaxableIncome('0');
     setSpouseTaxableIncome('0');
     setNumDependents('0');
+    setShowPreFinalization(false);
+    setPreFinalizationPct('5');
+    setShowBuyback(false);
+    setBuybackYears('0');
+    setBuybackComp('0');
     setDefCompBalance('0');
     setDefCompMode('rate');
     setDefCompRate('4');
@@ -2201,6 +2251,169 @@ function PensionCalculator() {
               </p>
             </>
           )}
+        </Section>
+
+        <Section title="Pre-Finalization Pension" badge={tier === 'tier2' ? '06' : '05'} defaultOpen={false}>
+          <p className="text-sm text-slate-400 leading-relaxed mb-3">
+            Per PPF's own Summary Plan Description: when you first retire, your pension isn't "finalized" right
+            away — PPF pays your Maximum Retirement Allowance minus a default <strong className="text-slate-300">5%
+            holdback</strong> while your case is reviewed. Once finalized, you move to full monthly payments, and
+            any gap between the two periods is caught up in your first full payment.
+          </p>
+          <label className="flex items-center gap-2 text-sm text-slate-300 py-1.5 mb-3">
+            <input type="checkbox" checked={showPreFinalization} onChange={(e) => setShowPreFinalization(e.target.checked)} className="accent-amber-500" />
+            Show a pre-finalization estimate
+          </label>
+          {showPreFinalization && (
+            <>
+              <div className="max-w-xs mb-3">
+                <NumField
+                  label="Withholding percentage"
+                  prefix=""
+                  value={preFinalizationPct}
+                  onChange={setPreFinalizationPct}
+                  hint="Defaults to PPF's standard 5%. Raise this yourself if you're choosing a survivor payment option, which this calculator doesn't model — see the note below."
+                />
+              </div>
+
+              {tier === 'tier2' ? (
+                <PreFinalizationEstimate
+                  fullMonthly={t2.totalAnnual / 12}
+                  fullAnnual={t2.totalAnnual}
+                  withholdPct={num(preFinalizationPct)}
+                />
+              ) : t3.hasAgeSplit ? (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <PreFinalizationEstimate
+                    fullMonthly={t3.totalBeforeAnnual / 12}
+                    fullAnnual={t3.totalBeforeAnnual}
+                    withholdPct={num(preFinalizationPct)}
+                  />
+                  <PreFinalizationEstimate
+                    fullMonthly={t3.totalAfterAnnual / 12}
+                    fullAnnual={t3.totalAfterAnnual}
+                    withholdPct={num(preFinalizationPct)}
+                  />
+                </div>
+              ) : (
+                <PreFinalizationEstimate
+                  fullMonthly={t3.totalAfterAnnual / 12}
+                  fullAnnual={t3.totalAfterAnnual}
+                  withholdPct={num(preFinalizationPct)}
+                />
+              )}
+            </>
+          )}
+        </Section>
+
+        <Section title="Service Buyback Options" badge={tier === 'tier2' ? '07' : '06'} defaultOpen={false}>
+          <p className="text-sm text-slate-400 leading-relaxed mb-3">
+            PPF's SPD lists five ways to buy back prior service. Only Military Service has a simple, fixed formula
+            this calculator can compute — the other four depend on your specific historical account data that only
+            PPF has, so they're covered as reference below rather than a fake calculator.
+          </p>
+
+          <div className="border-t border-slate-800 pt-3 mb-4">
+            <span className="block text-[13px] font-medium text-slate-300 mb-1">Military Service, RSSL §1000</span>
+            <p className="text-xs text-slate-400 leading-relaxed mb-2">
+              Purchase up to <strong>3 years</strong> of pre-membership military service. You need 5 years of
+              allowable police service already (not counting the time you're buying back) and an honorable
+              discharge (DD-214). Must apply and pay in full before your retirement date.
+            </p>
+            <label className="flex items-center gap-2 text-sm text-slate-300 py-1.5 mb-3">
+              <input type="checkbox" checked={showBuyback} onChange={(e) => setShowBuyback(e.target.checked)} className="accent-amber-500" />
+              Calculate military buyback cost
+            </label>
+            {showBuyback && (
+              <>
+                <div className="grid sm:grid-cols-2 gap-4 mb-2">
+                  <NumField
+                    label="Years of military service to buy back"
+                    prefix=""
+                    value={buybackYears}
+                    onChange={setBuybackYears}
+                    hint="Capped at 3 years total under RSSL §1000."
+                  />
+                  <NumField
+                    label="Compensation, last 12 months of credited service"
+                    value={buybackComp}
+                    onChange={setBuybackComp}
+                    hint="As of your application date — not necessarily the same as your current FAS inputs above."
+                  />
+                </div>
+                <div className="bg-slate-950/60 border border-slate-700 rounded-sm px-3 py-3">
+                  <div className="text-xs text-slate-400 mb-1">Estimated cost (3% × years × compensation)</div>
+                  <div className="font-mono text-lg text-amber-400">
+                    {fmt(0.03 * Math.min(3, num(buybackYears)) * num(buybackComp))}
+                  </div>
+                  {num(buybackYears) > 3 && (
+                    <p className="text-xs text-amber-400 mt-1">Capped at 3 years — using 3, not {buybackYears}.</p>
+                  )}
+                </div>
+                <p className="text-xs text-slate-400 leading-relaxed mt-2">
+                  This buys additional years of service credit — once purchased, add it to "Years of allowable
+                  police service" in section 01 yourself to see the effect on your pension. The SPD also warns
+                  most buybacks recalculate your required contribution rate retroactively, which commonly creates
+                  a shortage — check the ASF excess/shortage section above once you know your real figures from
+                  PPF.
+                </p>
+              </>
+            )}
+          </div>
+
+          <div className="border-t border-slate-800 pt-3 mb-4">
+            <span className="block text-[13px] font-medium text-slate-300 mb-2">
+              Check this first: Transfer of Service (often free)
+            </span>
+            <p className="text-xs text-slate-400 leading-relaxed mb-2">
+              If you worked for another NYC or NY State public employer before joining NYPD, a straight
+              <strong className="text-slate-300"> transfer</strong> is different from a buyback — often free or much
+              cheaper, but only within a time window:
+            </p>
+            <div className="space-y-2 text-xs text-slate-400 leading-relaxed">
+              <p>
+                <strong className="text-slate-300">Prior NY State service</strong> — transfer within <strong>7
+                years</strong> of leaving state service. After that, you must purchase the time instead
+                (Chapter 552 buyback below).
+              </p>
+              <p>
+                <strong className="text-slate-300">Prior NYC service</strong> — transfer within <strong>1
+                year</strong> of leaving city service. After that, same — a buyback is required.
+              </p>
+              <p>
+                Counts as full uniformed "Allowable Police Service" only for specific prior roles: Housing Police,
+                Transit Police, Correction, Sanitation, EMT, other NYS/PFRS uniformed service, or Peace Officer
+                status immediately preceding your NYPD appointment (Chapter 498 of 2005). Other prior service
+                still transfers, but only as Other Credited Service — added pension value, not faster eligibility.
+              </p>
+            </div>
+          </div>
+
+          <div className="border-t border-slate-800 pt-3">
+            <span className="block text-[13px] font-medium text-slate-300 mb-2">Other buyback types (contact PPF for exact cost)</span>
+            <div className="space-y-3 text-xs text-slate-400 leading-relaxed">
+              <p>
+                <strong className="text-slate-300">Chapter 646 (1999)</strong> — former City/State public
+                retirement system membership; repay refunded contributions plus interest. Uniformed service
+                changes your retirement date; non-uniformed only adds pension value. Changes your contribution
+                rate and may create a shortage.
+              </p>
+              <p>
+                <strong className="text-slate-300">Chapter 552 (2000)</strong> — prior City/State/political
+                subdivision service before joining PPF, once the free transfer window above has closed. Uniformed
+                service changes your retirement date; non-uniformed only adds value. Unlike Chapter 646, your
+                contribution rate never changes.
+              </p>
+              <p>
+                <strong className="text-slate-300">Child Care, Chapter 594 (2000)</strong> — purchase uniformed
+                credit for authorized childcare leave. Must file within 90 days of the leave ending.
+              </p>
+              <p>
+                <strong className="text-slate-300">Bosnia Bill, Chapter 606 (2000)</strong> — police duty performed
+                abroad for the U.S. government. Combined with qualifying military service, capped at 4 years total.
+              </p>
+            </div>
+          </div>
         </Section>
 
         {/* ============ RESULTS ============ */}
