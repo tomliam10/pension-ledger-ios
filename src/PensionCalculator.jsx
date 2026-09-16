@@ -479,12 +479,18 @@ function HeadlineSplit({ beforeMonthly, afterMonthly, note }) {
   );
 }
 
-function NetPayEstimate({ label, grossAnnual, filingStatus, otherIncomeAnnual, numDependents }) {
-  const tax = estimatePensionFederalTax(grossAnnual, otherIncomeAnnual, filingStatus, numDependents);
+function NetPayEstimate({ label, grossAnnual, filingStatus, otherIncomeAnnual, numDependents, isExempt }) {
+  const tax = isExempt ? 0 : estimatePensionFederalTax(grossAnnual, otherIncomeAnnual, filingStatus, numDependents);
   const net = Math.max(0, grossAnnual - tax);
   return (
     <div className="border border-slate-700 bg-slate-950/60 rounded-sm px-3 py-3">
       {label && <div className="text-xs text-slate-400 mb-2">{label}</div>}
+      {isExempt && (
+        <p className="text-xs text-sky-400 leading-relaxed mb-2">
+          Per PPF's SPD, Accident Disability Retirement pensions are generally not subject to federal tax — this
+          shows your full gross amount as net.
+        </p>
+      )}
       <LedgerRow label="Gross pension" annual={grossAnnual} monthly={grossAnnual / 12} />
       <LedgerRow label="Estimated federal tax" annual={tax} monthly={tax / 12} negative />
       <LedgerRow label="Estimated net (take-home)" annual={net} monthly={net / 12} bold />
@@ -663,8 +669,7 @@ export default function PensionCalculatorWithBoundary() {
 
 function PensionCalculator() {
   const [tier, setTier] = useState('tier2');
-  const { isPremium: _ip, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
-  const isPremium = true; // TEMP: personal testing only — revert before real release
+  const { isPremium, offerings, loading: purchasesLoading, error: purchasesError, isNative, purchasePackage, restorePurchases } = usePurchases();
   const [showPaywall, setShowPaywall] = useState(false);
 
   /* ---------------- Tier 2 state ---------------- */
@@ -2162,9 +2167,10 @@ function PensionCalculator() {
         <Section title="Net Pay Estimate (After Federal Tax)" badge={tier === 'tier2' ? '05' : '04'} defaultOpen={false}>
           <p className="text-sm text-slate-400 leading-relaxed mb-3">
             <strong className="text-slate-300">Your NYPD pension is exempt from New York State and NYC income
-            tax</strong> — that's real, settled state tax law, not a loophole. Only federal income tax applies to
-            it. This estimates that federal tax using current IRS brackets, so you can see roughly what actually
-            lands in your account each month.
+            tax</strong> — that's real, settled state tax law, not a loophole. Federal income tax applies to most
+            retirement types, estimated below using current IRS brackets — <strong className="text-slate-300">except
+            Accident Disability Retirement (ADR)</strong>, which PPF's own SPD states is generally exempt from
+            federal tax too.
           </p>
           <label className="flex items-center gap-2 text-sm text-slate-300 py-1.5 mb-3">
             <input type="checkbox" checked={showNetPay} onChange={(e) => setShowNetPay(e.target.checked)} className="accent-amber-500" />
@@ -2216,6 +2222,7 @@ function PensionCalculator() {
                   filingStatus={taxFilingStatus}
                   otherIncomeAnnual={num(otherTaxableIncome) + (taxFilingStatus === 'mfj' ? num(spouseTaxableIncome) : 0)}
                   numDependents={num(numDependents)}
+                  isExempt={t2.isADR}
                 />
               ) : t3.hasAgeSplit ? (
                 <div className="grid sm:grid-cols-2 gap-3">
@@ -2225,6 +2232,7 @@ function PensionCalculator() {
                     filingStatus={taxFilingStatus}
                     otherIncomeAnnual={num(otherTaxableIncome) + (taxFilingStatus === 'mfj' ? num(spouseTaxableIncome) : 0)}
                     numDependents={num(numDependents)}
+                    isExempt={t3RetType === 'adr'}
                   />
                   <NetPayEstimate
                     label="Age 62 and after"
@@ -2232,6 +2240,7 @@ function PensionCalculator() {
                     filingStatus={taxFilingStatus}
                     otherIncomeAnnual={num(otherTaxableIncome) + (taxFilingStatus === 'mfj' ? num(spouseTaxableIncome) : 0)}
                     numDependents={num(numDependents)}
+                    isExempt={t3RetType === 'adr'}
                   />
                 </div>
               ) : (
@@ -2240,6 +2249,7 @@ function PensionCalculator() {
                   filingStatus={taxFilingStatus}
                   otherIncomeAnnual={num(otherTaxableIncome) + (taxFilingStatus === 'mfj' ? num(spouseTaxableIncome) : 0)}
                   numDependents={num(numDependents)}
+                  isExempt={t3RetType === 'adr'}
                 />
               )}
 
