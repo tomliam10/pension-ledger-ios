@@ -4,12 +4,12 @@ import { useState, useEffect, useCallback } from 'react';
 // All three products (monthly, annual, lifetime) should unlock this same
 // entitlement — the app only ever checks this one string, never the
 // individual product IDs, so which product someone bought doesn't matter.
-export const ENTITLEMENT_ID = 'premium';
+export const ENTITLEMENT_ID = 'pension_ledger_pro';
 
 // Replace with your RevenueCat public SDK key (Project Settings → API Keys
 // in the RevenueCat dashboard — use the Apple/iOS public key, not the secret
 // key, which should never ship inside an app).
-const REVENUECAT_API_KEY = 'YOUR_REVENUECAT_PUBLIC_SDK_KEY';
+const REVENUECAT_API_KEY = 'appl_IBhdnPCDudYsNKugakYmhIJUaOp';
 
 let PurchasesModule = null;
 async function getPurchasesModule() {
