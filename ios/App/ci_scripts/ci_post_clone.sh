@@ -2,9 +2,13 @@
 set -e
 
 echo "Installing Node.js (not included in Xcode Cloud by default)..."
-export HOMEBREW_NO_INSTALL_CLEANUP=TRUE
-brew install node@20
-brew link --force node@20
+NODE_VERSION="20.18.1"
+curl -fsSL -O "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-darwin-arm64.tar.gz"
+tar -xzf "node-v${NODE_VERSION}-darwin-arm64.tar.gz"
+export PATH="$PWD/node-v${NODE_VERSION}-darwin-arm64/bin:$PATH"
+
+echo "Node version: $(node -v)"
+echo "npm version: $(npm -v)"
 
 echo "Installing npm dependencies..."
 cd "$CI_PRIMARY_REPOSITORY_PATH"
